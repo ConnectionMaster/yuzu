@@ -18,19 +18,20 @@ cd ..
 mkdir package
 
 if [ -d "/usr/x86_64-w64-mingw32/lib/qt5/plugins/platforms/" ]; then
-  QT_PLATFORM_DLL_PATH='/usr/x86_64-w64-mingw32/lib/qt5/plugins/platforms/'
+  QT_PLUGINS_PATH='/usr/x86_64-w64-mingw32/lib/qt5/plugins'
 else
   #fallback to qt
-  QT_PLATFORM_DLL_PATH='/usr/x86_64-w64-mingw32/lib/qt/plugins/platforms/'
+  QT_PLUGINS_PATH='/usr/x86_64-w64-mingw32/lib/qt/plugins'
 fi
 
 find build/ -name "yuzu*.exe" -exec cp {} 'package' \;
 
 # copy Qt plugins
 mkdir package/platforms
-cp "${QT_PLATFORM_DLL_PATH}/qwindows.dll" package/platforms/
-cp -rv "${QT_PLATFORM_DLL_PATH}/../mediaservice/" package/
-cp -rv "${QT_PLATFORM_DLL_PATH}/../imageformats/" package/
+cp -v "${QT_PLUGINS_PATH}/platforms/qwindows.dll" package/platforms/
+cp -rv "${QT_PLUGINS_PATH}/mediaservice/" package/
+cp -rv "${QT_PLUGINS_PATH}/imageformats/" package/
+cp -rv "${QT_PLUGINS_PATH}/styles/" package/
 rm -f package/mediaservice/*d.dll
 
 for i in package/*.exe; do
@@ -47,3 +48,6 @@ python3 .ci/scripts/windows/scan_dll.py package/imageformats/*.dll "package/"
 EXTERNALS_PATH="$(pwd)/build/externals"
 FFMPEG_DLL_PATH="$(find ${EXTERNALS_PATH} -maxdepth 1 -type d | grep ffmpeg)/bin"
 find ${FFMPEG_DLL_PATH} -type f -regex ".*\.dll" -exec cp -v {} package/ ';'
+
+# copy libraries from yuzu.exe path
+find "$(pwd)/build/bin/" -type f -regex ".*\.dll" -exec cp -v {} package/ ';'

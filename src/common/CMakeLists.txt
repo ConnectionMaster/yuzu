@@ -21,14 +21,14 @@ find_package(Git QUIET)
 
 add_custom_command(OUTPUT scm_rev.cpp
     COMMAND ${CMAKE_COMMAND}
-      -DSRC_DIR="${CMAKE_SOURCE_DIR}"
-      -DBUILD_REPOSITORY="${BUILD_REPOSITORY}"
-      -DTITLE_BAR_FORMAT_IDLE="${TITLE_BAR_FORMAT_IDLE}"
-      -DTITLE_BAR_FORMAT_RUNNING="${TITLE_BAR_FORMAT_RUNNING}"
-      -DBUILD_TAG="${BUILD_TAG}"
-      -DBUILD_ID="${DISPLAY_VERSION}"
-      -DGIT_EXECUTABLE="${GIT_EXECUTABLE}"
-      -P "${CMAKE_SOURCE_DIR}/CMakeModules/GenerateSCMRev.cmake"
+      -DSRC_DIR=${CMAKE_SOURCE_DIR}
+      -DBUILD_REPOSITORY=${BUILD_REPOSITORY}
+      -DTITLE_BAR_FORMAT_IDLE=${TITLE_BAR_FORMAT_IDLE}
+      -DTITLE_BAR_FORMAT_RUNNING=${TITLE_BAR_FORMAT_RUNNING}
+      -DBUILD_TAG=${BUILD_TAG}
+      -DBUILD_ID=${DISPLAY_VERSION}
+      -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+      -P ${CMAKE_SOURCE_DIR}/CMakeModules/GenerateSCMRev.cmake
     DEPENDS
       # WARNING! It was too much work to try and make a common location for this list,
       # so if you need to change it, please update CMakeModules/GenerateSCMRev.cmake as well
@@ -92,6 +92,7 @@ add_custom_command(OUTPUT scm_rev.cpp
       "${CMAKE_CURRENT_SOURCE_DIR}/scm_rev.h"
       # technically we should regenerate if the git version changed, but its not worth the effort imo
       "${CMAKE_SOURCE_DIR}/CMakeModules/GenerateSCMRev.cmake"
+    VERBATIM
 )
 
 add_library(common STATIC
@@ -109,8 +110,6 @@ add_library(common STATIC
     cityhash.cpp
     cityhash.h
     common_funcs.h
-    common_paths.h
-    common_sizes.h
     common_types.h
     concepts.h
     div_ceil.h
@@ -118,12 +117,23 @@ add_library(common STATIC
     dynamic_library.h
     fiber.cpp
     fiber.h
-    file_util.cpp
-    file_util.h
+    fs/file.cpp
+    fs/file.h
+    fs/fs.cpp
+    fs/fs.h
+    fs/fs_paths.h
+    fs/fs_types.h
+    fs/fs_util.cpp
+    fs/fs_util.h
+    fs/path_util.cpp
+    fs/path_util.h
     hash.h
     hex_util.cpp
     hex_util.h
+    host_memory.cpp
+    host_memory.h
     intrusive_red_black_tree.h
+    literals.h
     logging/backend.cpp
     logging/backend.h
     logging/filter.cpp
@@ -131,6 +141,7 @@ add_library(common STATIC
     logging/log.h
     logging/text_formatter.cpp
     logging/text_formatter.h
+    logging/types.h
     lz4_compression.cpp
     lz4_compression.h
     math_util.h
@@ -147,6 +158,7 @@ add_library(common STATIC
     param_package.cpp
     param_package.h
     parent_of_member.h
+    point.h
     quaternion.h
     ring_buffer.h
     scm_rev.cpp
@@ -168,7 +180,6 @@ add_library(common STATIC
     thread.cpp
     thread.h
     thread_queue_list.h
-    thread_worker.cpp
     thread_worker.h
     threadsafe_queue.h
     time_zone.cpp
@@ -176,6 +187,7 @@ add_library(common STATIC
     tiny_mt.h
     tree.h
     uint128.h
+    unique_function.h
     uuid.cpp
     uuid.h
     vector_math.h

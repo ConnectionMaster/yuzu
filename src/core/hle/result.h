@@ -124,27 +124,27 @@ union ResultCode {
     constexpr ResultCode(ErrorModule module_, u32 description_)
         : raw(module.FormatValue(module_) | description.FormatValue(description_)) {}
 
-    constexpr bool IsSuccess() const {
+    [[nodiscard]] constexpr bool IsSuccess() const {
         return raw == 0;
     }
 
-    constexpr bool IsError() const {
-        return raw != 0;
+    [[nodiscard]] constexpr bool IsError() const {
+        return !IsSuccess();
     }
 };
 
-constexpr bool operator==(const ResultCode& a, const ResultCode& b) {
+[[nodiscard]] constexpr bool operator==(const ResultCode& a, const ResultCode& b) {
     return a.raw == b.raw;
 }
 
-constexpr bool operator!=(const ResultCode& a, const ResultCode& b) {
-    return a.raw != b.raw;
+[[nodiscard]] constexpr bool operator!=(const ResultCode& a, const ResultCode& b) {
+    return !operator==(a, b);
 }
 
 // Convenience functions for creating some common kinds of errors:
 
 /// The default success `ResultCode`.
-constexpr ResultCode RESULT_SUCCESS(0);
+constexpr ResultCode ResultSuccess(0);
 
 /**
  * Placeholder result code used for unknown error codes.
@@ -152,7 +152,7 @@ constexpr ResultCode RESULT_SUCCESS(0);
  * @note This should only be used when a particular error code
  *       is not known yet.
  */
-constexpr ResultCode RESULT_UNKNOWN(UINT32_MAX);
+constexpr ResultCode ResultUnknown(UINT32_MAX);
 
 /**
  * This is an optional value type. It holds a `ResultCode` and, if that code is a success code,
@@ -191,7 +191,7 @@ class ResultVal {
 public:
     /// Constructs an empty `ResultVal` with the given error code. The code must not be a success
     /// code.
-    ResultVal(ResultCode error_code = RESULT_UNKNOWN) : result_code(error_code) {
+    ResultVal(ResultCode error_code = ResultUnknown) : result_code(error_code) {
         ASSERT(error_code.IsError());
     }
 
@@ -200,7 +200,7 @@ public:
      * specify the success code. `success_code` must not be an error code.
      */
     template <typename... Args>
-    static ResultVal WithCode(ResultCode success_code, Args&&... args) {
+    [[nodiscard]] static ResultVal WithCode(ResultCode success_code, Args&&... args) {
         ResultVal<T> result;
         result.emplace(success_code, std::forward<Args>(args)...);
         return result;
@@ -259,49 +259,49 @@ public:
     }
 
     /// Returns true if the `ResultVal` contains an error code and no value.
-    bool empty() const {
+    [[nodiscard]] bool empty() const {
         return result_code.IsError();
     }
 
     /// Returns true if the `ResultVal` contains a return value.
-    bool Succeeded() const {
+    [[nodiscard]] bool Succeeded() const {
         return result_code.IsSuccess();
     }
     /// Returns true if the `ResultVal` contains an error code and no value.
-    bool Failed() const {
+    [[nodiscard]] bool Failed() const {
         return empty();
     }
 
-    ResultCode Code() const {
+    [[nodiscard]] ResultCode Code() const {
         return result_code;
     }
 
-    const T& operator*() const {
+    [[nodiscard]] const T& operator*() const {
         return object;
     }
-    T& operator*() {
+    [[nodiscard]] T& operator*() {
         return object;
     }
-    const T* operator->() const {
+    [[nodiscard]] const T* operator->() const {
         return &object;
     }
-    T* operator->() {
+    [[nodiscard]] T* operator->() {
         return &object;
     }
 
     /// Returns the value contained in this `ResultVal`, or the supplied default if it is missing.
     template <typename U>
-    T ValueOr(U&& value) const {
+    [[nodiscard]] T ValueOr(U&& value) const {
         return !empty() ? object : std::move(value);
     }
 
     /// Asserts that the result succeeded and returns a reference to it.
-    T& Unwrap() & {
+    [[nodiscard]] T& Unwrap() & {
         ASSERT_MSG(Succeeded(), "Tried to Unwrap empty ResultVal");
         return **this;
     }
 
-    T&& Unwrap() && {
+    [[nodiscard]] T&& Unwrap() && {
         ASSERT_MSG(Succeeded(), "Tried to Unwrap empty ResultVal");
         return std::move(**this);
     }
@@ -320,8 +320,8 @@ private:
  * `T` with and creates a success `ResultVal` contained the constructed value.
  */
 template <typename T, typename... Args>
-ResultVal<T> MakeResult(Args&&... args) {
-    return ResultVal<T>::WithCode(RESULT_SUCCESS, std::forward<Args>(args)...);
+[[nodiscard]] ResultVal<T> MakeResult(Args&&... args) {
+    return ResultVal<T>::WithCode(ResultSuccess, std::forward<Args>(args)...);
 }
 
 /**
@@ -329,9 +329,8 @@ ResultVal<T> MakeResult(Args&&... args) {
  * copy or move constructing.
  */
 template <typename Arg>
-ResultVal<std::remove_reference_t<Arg>> MakeResult(Arg&& arg) {
-    return ResultVal<std::remove_reference_t<Arg>>::WithCode(RESULT_SUCCESS,
-                                                             std::forward<Arg>(arg));
+[[nodiscard]] ResultVal<std::remove_reference_t<Arg>> MakeResult(Arg&& arg) {
+    return ResultVal<std::remove_reference_t<Arg>>::WithCode(ResultSuccess, std::forward<Arg>(arg));
 }
 
 /**
@@ -358,3 +357,28 @@ ResultVal<std::remove_reference_t<Arg>> MakeResult(Arg&& arg) {
             return CONCAT2(check_result_L, __LINE__);                                              \
         }                                                                                          \
     } while (false)
+
+#define R_SUCCEEDED(res) (res.IsSuccess())
+
+/// Evaluates a boolean expression, and succeeds if that expression is true.
+#define R_SUCCEED_IF(expr) R_UNLESS(!(expr), ResultSuccess)
+
+/// Evaluates a boolean expression, and returns a result unless that expression is true.
+#define R_UNLESS(expr, res)                                                                        \
+    {                                                                                              \
+        if (!(expr)) {                                                                             \
+            if (res.IsError()) {                                                                   \
+                LOG_ERROR(Kernel, "Failed with result: {}", res.raw);                              \
+            }                                                                                      \
+            return res;                                                                            \
+        }                                                                                          \
+    }
+
+/// Evaluates an expression that returns a result, and returns the result if it would fail.
+#define R_TRY(res_expr)                                                                            \
+    {                                                                                              \
+        const auto _tmp_r_try_rc = (res_expr);                                                     \
+        if (_tmp_r_try_rc.IsError()) {                                                             \
+            return _tmp_r_try_rc;                                                                  \
+        }                                                                                          \
+    }

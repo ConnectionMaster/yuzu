@@ -9,7 +9,9 @@
 
 #include "common/assert.h"
 #include "common/common_types.h"
-#include "common/file_util.h"
+#include "common/fs/file.h"
+#include "common/fs/fs.h"
+#include "common/fs/path_util.h"
 #include "common/logging/log.h"
 
 #include "common/settings.h"
@@ -72,31 +74,41 @@ static const char* TranslateGPUAccuracyLevel(Settings::GPUAccuracy backend) {
 
 u64 GetTelemetryId() {
     u64 telemetry_id{};
-    const std::string filename{Common::FS::GetUserPath(Common::FS::UserPath::ConfigDir) +
-                               "telemetry_id"};
+    const auto filename = Common::FS::GetYuzuPath(Common::FS::YuzuPath::ConfigDir) / "telemetry_id";
 
     bool generate_new_id = !Common::FS::Exists(filename);
+
     if (!generate_new_id) {
-        Common::FS::IOFile file(filename, "rb");
+        Common::FS::IOFile file{filename, Common::FS::FileAccessMode::Read,
+                                Common::FS::FileType::BinaryFile};
+
         if (!file.IsOpen()) {
-            LOG_ERROR(Core, "failed to open telemetry_id: {}", filename);
+            LOG_ERROR(Core, "failed to open telemetry_id: {}",
+                      Common::FS::PathToUTF8String(filename));
             return {};
         }
-        file.ReadBytes(&telemetry_id, sizeof(u64));
-        if (telemetry_id == 0) {
+
+        if (!file.ReadObject(telemetry_id) || telemetry_id == 0) {
             LOG_ERROR(Frontend, "telemetry_id is 0. Generating a new one.", telemetry_id);
             generate_new_id = true;
         }
     }
 
     if (generate_new_id) {
-        Common::FS::IOFile file(filename, "wb");
+        Common::FS::IOFile file{filename, Common::FS::FileAccessMode::Write,
+                                Common::FS::FileType::BinaryFile};
+
         if (!file.IsOpen()) {
-            LOG_ERROR(Core, "failed to open telemetry_id: {}", filename);
+            LOG_ERROR(Core, "failed to open telemetry_id: {}",
+                      Common::FS::PathToUTF8String(filename));
             return {};
         }
+
         telemetry_id = GenerateTelemetryId();
-        file.WriteBytes(&telemetry_id, sizeof(u64));
+
+        if (!file.WriteObject(telemetry_id)) {
+            LOG_ERROR(Core, "Failed to write telemetry_id to file.");
+        }
     }
 
     return telemetry_id;
@@ -104,21 +116,26 @@ u64 GetTelemetryId() {
 
 u64 RegenerateTelemetryId() {
     const u64 new_telemetry_id{GenerateTelemetryId()};
-    const std::string filename{Common::FS::GetUserPath(Common::FS::UserPath::ConfigDir) +
-                               "telemetry_id"};
+    const auto filename = Common::FS::GetYuzuPath(Common::FS::YuzuPath::ConfigDir) / "telemetry_id";
 
-    Common::FS::IOFile file(filename, "wb");
+    Common::FS::IOFile file{filename, Common::FS::FileAccessMode::Write,
+                            Common::FS::FileType::BinaryFile};
+
     if (!file.IsOpen()) {
-        LOG_ERROR(Core, "failed to open telemetry_id: {}", filename);
+        LOG_ERROR(Core, "failed to open telemetry_id: {}", Common::FS::PathToUTF8String(filename));
         return {};
     }
-    file.WriteBytes(&new_telemetry_id, sizeof(u64));
+
+    if (!file.WriteObject(new_telemetry_id)) {
+        LOG_ERROR(Core, "Failed to write telemetry_id to file.");
+    }
+
     return new_telemetry_id;
 }
 
 bool VerifyLogin(const std::string& username, const std::string& token) {
 #ifdef ENABLE_WEB_SERVICE
-    return WebService::VerifyLogin(Settings::values.web_api_url, username, token);
+    return WebService::VerifyLogin(Settings::values.web_api_url.GetValue(), username, token);
 #else
     return false;
 #endif
@@ -135,7 +152,8 @@ TelemetrySession::~TelemetrySession() {
 
 #ifdef ENABLE_WEB_SERVICE
     auto backend = std::make_unique<WebService::TelemetryJson>(
-        Settings::values.web_api_url, Settings::values.yuzu_username, Settings::values.yuzu_token);
+        Settings::values.web_api_url.GetValue(), Settings::values.yuzu_username.GetValue(),
+        Settings::values.yuzu_token.GetValue());
 #else
     auto backend = std::make_unique<Telemetry::NullVisitor>();
 #endif
@@ -195,7 +213,7 @@ void TelemetrySession::AddInitialInfo(Loader::AppLoader& app_loader,
 
     // Log user configuration information
     constexpr auto field_type = Telemetry::FieldType::UserConfig;
-    AddField(field_type, "Audio_SinkId", Settings::values.sink_id);
+    AddField(field_type, "Audio_SinkId", Settings::values.sink_id.GetValue());
     AddField(field_type, "Audio_EnableAudioStretching",
              Settings::values.enable_audio_stretching.GetValue());
     AddField(field_type, "Core_UseMultiCore", Settings::values.use_multi_core.GetValue());
@@ -213,6 +231,7 @@ void TelemetrySession::AddInitialInfo(Loader::AppLoader& app_loader,
              Settings::values.use_asynchronous_gpu_emulation.GetValue());
     AddField(field_type, "Renderer_UseNvdecEmulation",
              Settings::values.use_nvdec_emulation.GetValue());
+    AddField(field_type, "Renderer_AccelerateASTC", Settings::values.accelerate_astc.GetValue());
     AddField(field_type, "Renderer_UseVsync", Settings::values.use_vsync.GetValue());
     AddField(field_type, "Renderer_UseAssemblyShaders",
              Settings::values.use_assembly_shaders.GetValue());
@@ -224,7 +243,8 @@ void TelemetrySession::AddInitialInfo(Loader::AppLoader& app_loader,
 bool TelemetrySession::SubmitTestcase() {
 #ifdef ENABLE_WEB_SERVICE
     auto backend = std::make_unique<WebService::TelemetryJson>(
-        Settings::values.web_api_url, Settings::values.yuzu_username, Settings::values.yuzu_token);
+        Settings::values.web_api_url.GetValue(), Settings::values.yuzu_username.GetValue(),
+        Settings::values.yuzu_token.GetValue());
     field_collection.Accept(*backend);
     return backend->SubmitTestcase();
 #else

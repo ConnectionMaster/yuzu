@@ -8,7 +8,7 @@
 
 #include <QDirIterator>
 #include "common/common_types.h"
-#include "common/file_util.h"
+#include "common/fs/path_util.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "ui_configure_ui.h"
@@ -17,17 +17,30 @@
 
 namespace {
 constexpr std::array default_icon_sizes{
-    std::make_pair(0, QT_TR_NOOP("None")),
-    std::make_pair(32, QT_TR_NOOP("Small (32x32)")),
-    std::make_pair(64, QT_TR_NOOP("Standard (64x64)")),
-    std::make_pair(128, QT_TR_NOOP("Large (128x128)")),
-    std::make_pair(256, QT_TR_NOOP("Full Size (256x256)")),
+    std::make_pair(0, QT_TRANSLATE_NOOP("ConfigureUI", "None")),
+    std::make_pair(32, QT_TRANSLATE_NOOP("ConfigureUI", "Small (32x32)")),
+    std::make_pair(64, QT_TRANSLATE_NOOP("ConfigureUI", "Standard (64x64)")),
+    std::make_pair(128, QT_TRANSLATE_NOOP("ConfigureUI", "Large (128x128)")),
+    std::make_pair(256, QT_TRANSLATE_NOOP("ConfigureUI", "Full Size (256x256)")),
 };
 
+// clang-format off
 constexpr std::array row_text_names{
-    QT_TR_NOOP("Filename"),   QT_TR_NOOP("Filetype"), QT_TR_NOOP("Title ID"),
-    QT_TR_NOOP("Title Name"), QT_TR_NOOP("None"),
+    QT_TRANSLATE_NOOP("ConfigureUI", "Filename"),
+    QT_TRANSLATE_NOOP("ConfigureUI", "Filetype"),
+    QT_TRANSLATE_NOOP("ConfigureUI", "Title ID"),
+    QT_TRANSLATE_NOOP("ConfigureUI", "Title Name"),
+    QT_TRANSLATE_NOOP("ConfigureUI", "None"),
 };
+// clang-format on
+
+QString GetTranslatedIconSize(size_t index) {
+    return QCoreApplication::translate("ConfigureUI", default_icon_sizes[index].second);
+}
+
+QString GetTranslatedRowTextName(size_t index) {
+    return QCoreApplication::translate("ConfigureUI", row_text_names[index]);
+}
 } // Anonymous namespace
 
 ConfigureUi::ConfigureUi(QWidget* parent) : QWidget(parent), ui(new Ui::ConfigureUi) {
@@ -62,13 +75,16 @@ ConfigureUi::ConfigureUi(QWidget* parent) : QWidget(parent), ui(new Ui::Configur
 
     // Set screenshot path to user specification.
     connect(ui->screenshot_path_button, &QToolButton::pressed, this, [this] {
-        const QString& filename =
+        auto dir =
             QFileDialog::getExistingDirectory(this, tr("Select Screenshots Path..."),
-                                              QString::fromStdString(Common::FS::GetUserPath(
-                                                  Common::FS::UserPath::ScreenshotsDir))) +
-            QDir::separator();
-        if (!filename.isEmpty()) {
-            ui->screenshot_path_edit->setText(filename);
+                                              QString::fromStdString(Common::FS::GetYuzuPathString(
+                                                  Common::FS::YuzuPath::ScreenshotsDir)));
+        if (!dir.isEmpty()) {
+            if (dir.back() != QChar::fromLatin1('/')) {
+                dir.append(QChar::fromLatin1('/'));
+            }
+
+            ui->screenshot_path_edit->setText(dir);
         }
     });
 }
@@ -84,7 +100,7 @@ void ConfigureUi::ApplyConfiguration() {
     UISettings::values.row_2_text_id = ui->row_2_text_combobox->currentData().toUInt();
 
     UISettings::values.enable_screenshot_save_as = ui->enable_screenshot_save_as->isChecked();
-    Common::FS::GetUserPath(Common::FS::UserPath::ScreenshotsDir,
+    Common::FS::SetYuzuPath(Common::FS::YuzuPath::ScreenshotsDir,
                             ui->screenshot_path_edit->text().toStdString());
     Core::System::GetInstance().ApplySettings();
 }
@@ -97,13 +113,14 @@ void ConfigureUi::SetConfiguration() {
     ui->theme_combobox->setCurrentIndex(ui->theme_combobox->findData(UISettings::values.theme));
     ui->language_combobox->setCurrentIndex(
         ui->language_combobox->findData(UISettings::values.language));
-    ui->show_add_ons->setChecked(UISettings::values.show_add_ons);
+    ui->show_add_ons->setChecked(UISettings::values.show_add_ons.GetValue());
     ui->icon_size_combobox->setCurrentIndex(
-        ui->icon_size_combobox->findData(UISettings::values.icon_size));
+        ui->icon_size_combobox->findData(UISettings::values.icon_size.GetValue()));
 
-    ui->enable_screenshot_save_as->setChecked(UISettings::values.enable_screenshot_save_as);
-    ui->screenshot_path_edit->setText(
-        QString::fromStdString(Common::FS::GetUserPath(Common::FS::UserPath::ScreenshotsDir)));
+    ui->enable_screenshot_save_as->setChecked(
+        UISettings::values.enable_screenshot_save_as.GetValue());
+    ui->screenshot_path_edit->setText(QString::fromStdString(
+        Common::FS::GetYuzuPathString(Common::FS::YuzuPath::ScreenshotsDir)));
 }
 
 void ConfigureUi::changeEvent(QEvent* event) {
@@ -118,11 +135,11 @@ void ConfigureUi::RetranslateUI() {
     ui->retranslateUi(this);
 
     for (int i = 0; i < ui->icon_size_combobox->count(); i++) {
-        ui->icon_size_combobox->setItemText(i, tr(default_icon_sizes[i].second));
+        ui->icon_size_combobox->setItemText(i, GetTranslatedIconSize(static_cast<size_t>(i)));
     }
 
     for (int i = 0; i < ui->row_1_text_combobox->count(); i++) {
-        const QString name = tr(row_text_names[i]);
+        const QString name = GetTranslatedRowTextName(static_cast<size_t>(i));
 
         ui->row_1_text_combobox->setItemText(i, name);
         ui->row_2_text_combobox->setItemText(i, name);
@@ -149,8 +166,9 @@ void ConfigureUi::InitializeLanguageComboBox() {
 }
 
 void ConfigureUi::InitializeIconSizeComboBox() {
-    for (const auto& size : default_icon_sizes) {
-        ui->icon_size_combobox->addItem(QString::fromUtf8(size.second), size.first);
+    for (size_t i = 0; i < default_icon_sizes.size(); i++) {
+        const auto size = default_icon_sizes[i].first;
+        ui->icon_size_combobox->addItem(GetTranslatedIconSize(i), size);
     }
 }
 
@@ -161,13 +179,13 @@ void ConfigureUi::InitializeRowComboBoxes() {
 
 void ConfigureUi::UpdateFirstRowComboBox(bool init) {
     const int currentIndex =
-        init ? UISettings::values.row_1_text_id
+        init ? UISettings::values.row_1_text_id.GetValue()
              : ui->row_1_text_combobox->findData(ui->row_1_text_combobox->currentData());
 
     ui->row_1_text_combobox->clear();
 
     for (std::size_t i = 0; i < row_text_names.size(); i++) {
-        const QString row_text_name = QString::fromUtf8(row_text_names[i]);
+        const QString row_text_name = GetTranslatedRowTextName(i);
         ui->row_1_text_combobox->addItem(row_text_name, QVariant::fromValue(i));
     }
 
@@ -180,13 +198,13 @@ void ConfigureUi::UpdateFirstRowComboBox(bool init) {
 
 void ConfigureUi::UpdateSecondRowComboBox(bool init) {
     const int currentIndex =
-        init ? UISettings::values.row_2_text_id
+        init ? UISettings::values.row_2_text_id.GetValue()
              : ui->row_2_text_combobox->findData(ui->row_2_text_combobox->currentData());
 
     ui->row_2_text_combobox->clear();
 
     for (std::size_t i = 0; i < row_text_names.size(); ++i) {
-        const QString row_text_name = QString::fromUtf8(row_text_names[i]);
+        const QString row_text_name = GetTranslatedRowTextName(i);
         ui->row_2_text_combobox->addItem(row_text_name, QVariant::fromValue(i));
     }
 

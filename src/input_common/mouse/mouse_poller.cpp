@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
+#include <memory>
 #include <mutex>
 #include <utility>
 
@@ -82,7 +84,8 @@ public:
         std::lock_guard lock{mutex};
         const auto axis_value =
             static_cast<float>(mouse_input->GetMouseState(button).axis.at(axis));
-        return axis_value * Settings::values.mouse_panning_sensitivity / (100.0f * range);
+        const float sensitivity = Settings::values.mouse_panning_sensitivity.GetValue() * 0.10f;
+        return axis_value * sensitivity / (100.0f * range);
     }
 
     std::pair<float, float> GetAnalog(u32 analog_axis_x, u32 analog_axis_y) const {

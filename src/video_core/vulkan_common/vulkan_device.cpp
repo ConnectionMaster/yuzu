@@ -408,6 +408,7 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
     }
     logical = vk::Device::Create(physical, queue_cis, extensions, first_next, dld);
 
+    CollectPhysicalMemoryInfo();
     CollectTelemetryParameters();
     CollectToolingInfo();
 
@@ -529,6 +530,27 @@ bool Device::IsFormatSupported(VkFormat wanted_format, VkFormatFeatureFlags want
     }
     const auto supported_usage = GetFormatFeatures(it->second, format_type);
     return (supported_usage & wanted_usage) == wanted_usage;
+}
+
+std::string Device::GetDriverName() const {
+    switch (driver_id) {
+    case VK_DRIVER_ID_AMD_PROPRIETARY:
+        return "AMD";
+    case VK_DRIVER_ID_AMD_OPEN_SOURCE:
+        return "AMDVLK";
+    case VK_DRIVER_ID_MESA_RADV:
+        return "RADV";
+    case VK_DRIVER_ID_NVIDIA_PROPRIETARY:
+        return "NVIDIA";
+    case VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS:
+        return "INTEL";
+    case VK_DRIVER_ID_INTEL_OPEN_SOURCE_MESA:
+        return "ANV";
+    case VK_DRIVER_ID_MESA_LLVMPIPE:
+        return "LAVAPIPE";
+    default:
+        return vendor_name;
+    }
 }
 
 void Device::CheckSuitability(bool requires_swapchain) const {
@@ -815,6 +837,17 @@ void Device::CollectTelemetryParameters() {
     reported_extensions.reserve(std::size(extensions));
     for (const auto& extension : extensions) {
         reported_extensions.emplace_back(extension.extensionName);
+    }
+}
+
+void Device::CollectPhysicalMemoryInfo() {
+    const auto mem_properties = physical.GetMemoryProperties();
+    const size_t num_properties = mem_properties.memoryHeapCount;
+    device_access_memory = 0;
+    for (size_t element = 0; element < num_properties; ++element) {
+        if ((mem_properties.memoryHeaps[element].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0) {
+            device_access_memory += mem_properties.memoryHeaps[element].size;
+        }
     }
 }
 

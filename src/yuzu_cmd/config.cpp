@@ -16,7 +16,9 @@
 #endif
 
 #include <inih/cpp/INIReader.h>
-#include "common/file_util.h"
+#include "common/fs/file.h"
+#include "common/fs/fs.h"
+#include "common/fs/path_util.h"
 #include "common/logging/log.h"
 #include "common/param_package.h"
 #include "common/settings.h"
@@ -30,8 +32,8 @@ namespace FS = Common::FS;
 
 Config::Config() {
     // TODO: Don't hardcode the path; let the frontend decide where to put the config files.
-    sdl2_config_loc = FS::GetUserPath(FS::UserPath::ConfigDir) + "sdl2-config.ini";
-    sdl2_config = std::make_unique<INIReader>(sdl2_config_loc);
+    sdl2_config_loc = FS::GetYuzuPath(FS::YuzuPath::ConfigDir) / "sdl2-config.ini";
+    sdl2_config = std::make_unique<INIReader>(FS::PathToUTF8String(sdl2_config_loc));
 
     Reload();
 }
@@ -39,20 +41,23 @@ Config::Config() {
 Config::~Config() = default;
 
 bool Config::LoadINI(const std::string& default_contents, bool retry) {
-    const std::string& location = this->sdl2_config_loc;
+    const auto config_loc_str = FS::PathToUTF8String(sdl2_config_loc);
     if (sdl2_config->ParseError() < 0) {
         if (retry) {
-            LOG_WARNING(Config, "Failed to load {}. Creating file from defaults...", location);
-            FS::CreateFullPath(location);
-            FS::WriteStringToFile(true, location, default_contents);
-            sdl2_config = std::make_unique<INIReader>(location); // Reopen file
+            LOG_WARNING(Config, "Failed to load {}. Creating file from defaults...",
+                        config_loc_str);
+
+            void(FS::CreateParentDir(sdl2_config_loc));
+            void(FS::WriteStringToFile(sdl2_config_loc, FS::FileType::TextFile, default_contents));
+
+            sdl2_config = std::make_unique<INIReader>(config_loc_str);
 
             return LoadINI(default_contents, false);
         }
         LOG_ERROR(Config, "Failed.");
         return false;
     }
-    LOG_INFO(Config, "Successfully loaded {}", location);
+    LOG_INFO(Config, "Successfully loaded {}", config_loc_str);
     return true;
 }
 
@@ -236,6 +241,22 @@ static const std::array<int, 8> keyboard_mods{
     SDL_SCANCODE_RCTRL, SDL_SCANCODE_RSHIFT, SDL_SCANCODE_RALT, SDL_SCANCODE_RGUI,
 };
 
+template <>
+void Config::ReadSetting(const std::string& group, Settings::BasicSetting<std::string>& setting) {
+    setting = sdl2_config->Get(group, setting.GetLabel(), setting.GetDefault());
+}
+
+template <>
+void Config::ReadSetting(const std::string& group, Settings::BasicSetting<bool>& setting) {
+    setting = sdl2_config->GetBoolean(group, setting.GetLabel(), setting.GetDefault());
+}
+
+template <typename Type>
+void Config::ReadSetting(const std::string& group, Settings::BasicSetting<Type>& setting) {
+    setting = static_cast<Type>(sdl2_config->GetInteger(group, setting.GetLabel(),
+                                                        static_cast<long>(setting.GetDefault())));
+}
+
 void Config::ReadValues() {
     // Controls
     for (std::size_t p = 0; p < Settings::values.players.GetValue().size(); ++p) {
@@ -259,8 +280,7 @@ void Config::ReadValues() {
         }
     }
 
-    Settings::values.mouse_enabled =
-        sdl2_config->GetBoolean("ControlsGeneral", "mouse_enabled", false);
+    ReadSetting("ControlsGeneral", Settings::values.mouse_enabled);
     for (int i = 0; i < Settings::NativeMouseButton::NumMouseButtons; ++i) {
         std::string default_param = InputCommon::GenerateKeyboardParam(default_mouse_buttons[i]);
         Settings::values.mouse_buttons[i] = sdl2_config->Get(
@@ -270,14 +290,13 @@ void Config::ReadValues() {
             Settings::values.mouse_buttons[i] = default_param;
     }
 
-    Settings::values.motion_device = sdl2_config->Get(
-        "ControlsGeneral", "motion_device", "engine:motion_emu,update_period:100,sensitivity:0.01");
+    ReadSetting("ControlsGeneral", Settings::values.motion_device);
 
-    Settings::values.keyboard_enabled =
-        sdl2_config->GetBoolean("ControlsGeneral", "keyboard_enabled", false);
+    ReadSetting("ControlsGeneral", Settings::values.touch_device);
 
-    Settings::values.debug_pad_enabled =
-        sdl2_config->GetBoolean("ControlsGeneral", "debug_pad_enabled", false);
+    ReadSetting("ControlsGeneral", Settings::values.keyboard_enabled);
+
+    ReadSetting("ControlsGeneral", Settings::values.debug_pad_enabled);
     for (int i = 0; i < Settings::NativeButton::NumButtons; ++i) {
         std::string default_param = InputCommon::GenerateKeyboardParam(default_buttons[i]);
         Settings::values.debug_pad_buttons[i] = sdl2_config->Get(
@@ -298,12 +317,9 @@ void Config::ReadValues() {
             Settings::values.debug_pad_analogs[i] = default_param;
     }
 
-    Settings::values.vibration_enabled.SetValue(
-        sdl2_config->GetBoolean("ControlsGeneral", "vibration_enabled", true));
-    Settings::values.enable_accurate_vibrations.SetValue(
-        sdl2_config->GetBoolean("ControlsGeneral", "enable_accurate_vibrations", false));
-    Settings::values.motion_enabled.SetValue(
-        sdl2_config->GetBoolean("ControlsGeneral", "motion_enabled", true));
+    ReadSetting("ControlsGeneral", Settings::values.vibration_enabled);
+    ReadSetting("ControlsGeneral", Settings::values.enable_accurate_vibrations);
+    ReadSetting("ControlsGeneral", Settings::values.motion_enabled);
     Settings::values.touchscreen.enabled =
         sdl2_config->GetBoolean("ControlsGeneral", "touch_enabled", true);
     Settings::values.touchscreen.rotation_angle =
@@ -312,8 +328,43 @@ void Config::ReadValues() {
         sdl2_config->GetInteger("ControlsGeneral", "touch_diameter_x", 15);
     Settings::values.touchscreen.diameter_y =
         sdl2_config->GetInteger("ControlsGeneral", "touch_diameter_y", 15);
-    Settings::values.udp_input_servers =
-        sdl2_config->Get("Controls", "udp_input_address", InputCommon::CemuhookUDP::DEFAULT_SRV);
+
+    int num_touch_from_button_maps =
+        sdl2_config->GetInteger("ControlsGeneral", "touch_from_button_map", 0);
+    if (num_touch_from_button_maps > 0) {
+        for (int i = 0; i < num_touch_from_button_maps; ++i) {
+            Settings::TouchFromButtonMap map;
+            map.name = sdl2_config->Get("ControlsGeneral",
+                                        std::string("touch_from_button_maps_") + std::to_string(i) +
+                                            std::string("_name"),
+                                        "default");
+            const int num_touch_maps = sdl2_config->GetInteger(
+                "ControlsGeneral",
+                std::string("touch_from_button_maps_") + std::to_string(i) + std::string("_count"),
+                0);
+            map.buttons.reserve(num_touch_maps);
+
+            for (int j = 0; j < num_touch_maps; ++j) {
+                std::string touch_mapping =
+                    sdl2_config->Get("ControlsGeneral",
+                                     std::string("touch_from_button_maps_") + std::to_string(i) +
+                                         std::string("_bind_") + std::to_string(j),
+                                     "");
+                map.buttons.emplace_back(std::move(touch_mapping));
+            }
+
+            Settings::values.touch_from_button_maps.emplace_back(std::move(map));
+        }
+    } else {
+        Settings::values.touch_from_button_maps.emplace_back(
+            Settings::TouchFromButtonMap{"default", {}});
+        num_touch_from_button_maps = 1;
+    }
+    ReadSetting("ControlsGeneral", Settings::values.use_touch_from_button);
+    Settings::values.touch_from_button_map_index = std::clamp(
+        Settings::values.touch_from_button_map_index.GetValue(), 0, num_touch_from_button_maps - 1);
+
+    ReadSetting("ControlsGeneral", Settings::values.udp_input_servers);
 
     std::transform(keyboard_keys.begin(), keyboard_keys.end(),
                    Settings::values.keyboard_keys.begin(), InputCommon::GenerateKeyboardParam);
@@ -325,32 +376,29 @@ void Config::ReadValues() {
                    Settings::values.keyboard_mods.begin(), InputCommon::GenerateKeyboardParam);
 
     // Data Storage
-    Settings::values.use_virtual_sd =
-        sdl2_config->GetBoolean("Data Storage", "use_virtual_sd", true);
-    FS::GetUserPath(
-        FS::UserPath::NANDDir,
-        sdl2_config->Get("Data Storage", "nand_directory", FS::GetUserPath(FS::UserPath::NANDDir)));
-    FS::GetUserPath(
-        FS::UserPath::SDMCDir,
-        sdl2_config->Get("Data Storage", "sdmc_directory", FS::GetUserPath(FS::UserPath::SDMCDir)));
-    FS::GetUserPath(
-        FS::UserPath::LoadDir,
-        sdl2_config->Get("Data Storage", "load_directory", FS::GetUserPath(FS::UserPath::LoadDir)));
-    FS::GetUserPath(
-        FS::UserPath::DumpDir,
-        sdl2_config->Get("Data Storage", "dump_directory", FS::GetUserPath(FS::UserPath::DumpDir)));
-    Settings::values.gamecard_inserted =
-        sdl2_config->GetBoolean("Data Storage", "gamecard_inserted", false);
-    Settings::values.gamecard_current_game =
-        sdl2_config->GetBoolean("Data Storage", "gamecard_current_game", false);
-    Settings::values.gamecard_path = sdl2_config->Get("Data Storage", "gamecard_path", "");
+    ReadSetting("Data Storage", Settings::values.use_virtual_sd);
+    FS::SetYuzuPath(FS::YuzuPath::NANDDir,
+                    sdl2_config->Get("Data Storage", "nand_directory",
+                                     FS::GetYuzuPathString(FS::YuzuPath::NANDDir)));
+    FS::SetYuzuPath(FS::YuzuPath::SDMCDir,
+                    sdl2_config->Get("Data Storage", "sdmc_directory",
+                                     FS::GetYuzuPathString(FS::YuzuPath::SDMCDir)));
+    FS::SetYuzuPath(FS::YuzuPath::LoadDir,
+                    sdl2_config->Get("Data Storage", "load_directory",
+                                     FS::GetYuzuPathString(FS::YuzuPath::LoadDir)));
+    FS::SetYuzuPath(FS::YuzuPath::DumpDir,
+                    sdl2_config->Get("Data Storage", "dump_directory",
+                                     FS::GetYuzuPathString(FS::YuzuPath::DumpDir)));
+    ReadSetting("Data Storage", Settings::values.gamecard_inserted);
+    ReadSetting("Data Storage", Settings::values.gamecard_current_game);
+    ReadSetting("Data Storage", Settings::values.gamecard_path);
 
     // System
-    Settings::values.use_docked_mode.SetValue(
-        sdl2_config->GetBoolean("System", "use_docked_mode", true));
+    ReadSetting("System", Settings::values.use_docked_mode);
 
-    Settings::values.current_user = std::clamp<int>(
-        sdl2_config->GetInteger("System", "current_user", 0), 0, Service::Account::MAX_USERS - 1);
+    ReadSetting("System", Settings::values.current_user);
+    Settings::values.current_user = std::clamp<int>(Settings::values.current_user.GetValue(), 0,
+                                                    Service::Account::MAX_USERS - 1);
 
     const auto rng_seed_enabled = sdl2_config->GetBoolean("System", "rng_seed_enabled", false);
     if (rng_seed_enabled) {
@@ -367,83 +415,80 @@ void Config::ReadValues() {
         Settings::values.custom_rtc = std::nullopt;
     }
 
-    Settings::values.language_index.SetValue(
-        sdl2_config->GetInteger("System", "language_index", 1));
-    Settings::values.time_zone_index.SetValue(
-        sdl2_config->GetInteger("System", "time_zone_index", 0));
+    ReadSetting("System", Settings::values.language_index);
+    ReadSetting("System", Settings::values.region_index);
+    ReadSetting("System", Settings::values.time_zone_index);
+    ReadSetting("System", Settings::values.sound_index);
 
     // Core
-    Settings::values.use_multi_core.SetValue(
-        sdl2_config->GetBoolean("Core", "use_multi_core", true));
+    ReadSetting("Core", Settings::values.use_multi_core);
+
+    // Cpu
+    ReadSetting("Cpu", Settings::values.cpu_accuracy);
+    ReadSetting("Cpu", Settings::values.cpu_debug_mode);
+    ReadSetting("Cpu", Settings::values.cpuopt_page_tables);
+    ReadSetting("Cpu", Settings::values.cpuopt_block_linking);
+    ReadSetting("Cpu", Settings::values.cpuopt_return_stack_buffer);
+    ReadSetting("Cpu", Settings::values.cpuopt_fast_dispatcher);
+    ReadSetting("Cpu", Settings::values.cpuopt_context_elimination);
+    ReadSetting("Cpu", Settings::values.cpuopt_const_prop);
+    ReadSetting("Cpu", Settings::values.cpuopt_misc_ir);
+    ReadSetting("Cpu", Settings::values.cpuopt_reduce_misalign_checks);
+    ReadSetting("Cpu", Settings::values.cpuopt_fastmem);
+    ReadSetting("Cpu", Settings::values.cpuopt_unsafe_unfuse_fma);
+    ReadSetting("Cpu", Settings::values.cpuopt_unsafe_reduce_fp_error);
+    ReadSetting("Cpu", Settings::values.cpuopt_unsafe_ignore_standard_fpcr);
+    ReadSetting("Cpu", Settings::values.cpuopt_unsafe_inaccurate_nan);
+    ReadSetting("Cpu", Settings::values.cpuopt_unsafe_fastmem_check);
 
     // Renderer
-    const int renderer_backend = sdl2_config->GetInteger(
-        "Renderer", "backend", static_cast<int>(Settings::RendererBackend::OpenGL));
-    Settings::values.renderer_backend.SetValue(
-        static_cast<Settings::RendererBackend>(renderer_backend));
-    Settings::values.renderer_debug = sdl2_config->GetBoolean("Renderer", "debug", false);
-    Settings::values.vulkan_device.SetValue(
-        sdl2_config->GetInteger("Renderer", "vulkan_device", 0));
+    ReadSetting("Renderer", Settings::values.renderer_backend);
+    ReadSetting("Renderer", Settings::values.renderer_debug);
+    ReadSetting("Renderer", Settings::values.vulkan_device);
 
-    Settings::values.aspect_ratio.SetValue(
-        static_cast<int>(sdl2_config->GetInteger("Renderer", "aspect_ratio", 0)));
-    Settings::values.max_anisotropy.SetValue(
-        static_cast<int>(sdl2_config->GetInteger("Renderer", "max_anisotropy", 0)));
-    Settings::values.use_frame_limit.SetValue(
-        sdl2_config->GetBoolean("Renderer", "use_frame_limit", true));
-    Settings::values.frame_limit.SetValue(
-        static_cast<u16>(sdl2_config->GetInteger("Renderer", "frame_limit", 100)));
-    Settings::values.use_disk_shader_cache.SetValue(
-        sdl2_config->GetBoolean("Renderer", "use_disk_shader_cache", false));
-    const int gpu_accuracy_level = sdl2_config->GetInteger("Renderer", "gpu_accuracy", 1);
-    Settings::values.gpu_accuracy.SetValue(static_cast<Settings::GPUAccuracy>(gpu_accuracy_level));
-    Settings::values.use_asynchronous_gpu_emulation.SetValue(
-        sdl2_config->GetBoolean("Renderer", "use_asynchronous_gpu_emulation", true));
-    Settings::values.use_vsync.SetValue(
-        static_cast<u16>(sdl2_config->GetInteger("Renderer", "use_vsync", 1)));
-    Settings::values.use_assembly_shaders.SetValue(
-        sdl2_config->GetBoolean("Renderer", "use_assembly_shaders", true));
-    Settings::values.use_asynchronous_shaders.SetValue(
-        sdl2_config->GetBoolean("Renderer", "use_asynchronous_shaders", false));
-    Settings::values.use_asynchronous_shaders.SetValue(
-        sdl2_config->GetBoolean("Renderer", "use_asynchronous_shaders", false));
-    Settings::values.use_fast_gpu_time.SetValue(
-        sdl2_config->GetBoolean("Renderer", "use_fast_gpu_time", true));
+    ReadSetting("Renderer", Settings::values.aspect_ratio);
+    ReadSetting("Renderer", Settings::values.max_anisotropy);
+    ReadSetting("Renderer", Settings::values.use_frame_limit);
+    ReadSetting("Renderer", Settings::values.frame_limit);
+    ReadSetting("Renderer", Settings::values.use_disk_shader_cache);
+    ReadSetting("Renderer", Settings::values.gpu_accuracy);
+    ReadSetting("Renderer", Settings::values.use_asynchronous_gpu_emulation);
+    ReadSetting("Renderer", Settings::values.use_vsync);
+    ReadSetting("Renderer", Settings::values.disable_fps_limit);
+    ReadSetting("Renderer", Settings::values.use_assembly_shaders);
+    ReadSetting("Renderer", Settings::values.use_asynchronous_shaders);
+    ReadSetting("Renderer", Settings::values.use_nvdec_emulation);
+    ReadSetting("Renderer", Settings::values.accelerate_astc);
+    ReadSetting("Renderer", Settings::values.use_fast_gpu_time);
+    ReadSetting("Renderer", Settings::values.use_caches_gc);
 
-    Settings::values.bg_red.SetValue(
-        static_cast<float>(sdl2_config->GetReal("Renderer", "bg_red", 0.0)));
-    Settings::values.bg_green.SetValue(
-        static_cast<float>(sdl2_config->GetReal("Renderer", "bg_green", 0.0)));
-    Settings::values.bg_blue.SetValue(
-        static_cast<float>(sdl2_config->GetReal("Renderer", "bg_blue", 0.0)));
+    ReadSetting("Renderer", Settings::values.bg_red);
+    ReadSetting("Renderer", Settings::values.bg_green);
+    ReadSetting("Renderer", Settings::values.bg_blue);
 
     // Audio
-    Settings::values.sink_id = sdl2_config->Get("Audio", "output_engine", "auto");
-    Settings::values.enable_audio_stretching.SetValue(
-        sdl2_config->GetBoolean("Audio", "enable_audio_stretching", true));
-    Settings::values.audio_device_id = sdl2_config->Get("Audio", "output_device", "auto");
-    Settings::values.volume.SetValue(
-        static_cast<float>(sdl2_config->GetReal("Audio", "volume", 1)));
+    ReadSetting("Audio", Settings::values.sink_id);
+    ReadSetting("Audio", Settings::values.enable_audio_stretching);
+    ReadSetting("Audio", Settings::values.audio_device_id);
+    ReadSetting("Audio", Settings::values.volume);
 
     // Miscellaneous
-    Settings::values.log_filter = sdl2_config->Get("Miscellaneous", "log_filter", "*:Trace");
-    Settings::values.use_dev_keys = sdl2_config->GetBoolean("Miscellaneous", "use_dev_keys", false);
+    // log_filter has a different default here than from common
+    Settings::values.log_filter =
+        sdl2_config->Get("Miscellaneous", Settings::values.log_filter.GetLabel(), "*:Trace");
+    ReadSetting("Miscellaneous", Settings::values.use_dev_keys);
 
     // Debugging
     Settings::values.record_frame_times =
         sdl2_config->GetBoolean("Debugging", "record_frame_times", false);
-    Settings::values.program_args = sdl2_config->Get("Debugging", "program_args", "");
-    Settings::values.dump_exefs = sdl2_config->GetBoolean("Debugging", "dump_exefs", false);
-    Settings::values.dump_nso = sdl2_config->GetBoolean("Debugging", "dump_nso", false);
-    Settings::values.reporting_services =
-        sdl2_config->GetBoolean("Debugging", "reporting_services", false);
-    Settings::values.quest_flag = sdl2_config->GetBoolean("Debugging", "quest_flag", false);
-    Settings::values.use_debug_asserts =
-        sdl2_config->GetBoolean("Debugging", "use_debug_asserts", false);
-    Settings::values.use_auto_stub = sdl2_config->GetBoolean("Debugging", "use_auto_stub", false);
-
-    Settings::values.disable_macro_jit =
-        sdl2_config->GetBoolean("Debugging", "disable_macro_jit", false);
+    ReadSetting("Debugging", Settings::values.dump_exefs);
+    ReadSetting("Debugging", Settings::values.dump_nso);
+    ReadSetting("Debugging", Settings::values.enable_fs_access_log);
+    ReadSetting("Debugging", Settings::values.reporting_services);
+    ReadSetting("Debugging", Settings::values.quest_flag);
+    ReadSetting("Debugging", Settings::values.use_debug_asserts);
+    ReadSetting("Debugging", Settings::values.use_auto_stub);
+    ReadSetting("Debugging", Settings::values.disable_macro_jit);
 
     const auto title_list = sdl2_config->Get("AddOns", "title_ids", "");
     std::stringstream ss(title_list);
@@ -463,17 +508,14 @@ void Config::ReadValues() {
     }
 
     // Web Service
-    Settings::values.enable_telemetry =
-        sdl2_config->GetBoolean("WebService", "enable_telemetry", true);
-    Settings::values.web_api_url =
-        sdl2_config->Get("WebService", "web_api_url", "https://api.yuzu-emu.org");
-    Settings::values.yuzu_username = sdl2_config->Get("WebService", "yuzu_username", "");
-    Settings::values.yuzu_token = sdl2_config->Get("WebService", "yuzu_token", "");
+    ReadSetting("WebService", Settings::values.enable_telemetry);
+    ReadSetting("WebService", Settings::values.web_api_url);
+    ReadSetting("WebService", Settings::values.yuzu_username);
+    ReadSetting("WebService", Settings::values.yuzu_token);
 
     // Services
-    Settings::values.bcat_backend = sdl2_config->Get("Services", "bcat_backend", "none");
-    Settings::values.bcat_boxcat_local =
-        sdl2_config->GetBoolean("Services", "bcat_boxcat_local", false);
+    ReadSetting("Services", Settings::values.bcat_backend);
+    ReadSetting("Services", Settings::values.bcat_boxcat_local);
 }
 
 void Config::Reload() {

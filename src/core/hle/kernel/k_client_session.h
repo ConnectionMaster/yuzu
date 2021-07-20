@@ -34,15 +34,15 @@ class KClientSession final
 
 public:
     explicit KClientSession(KernelCore& kernel_);
-    virtual ~KClientSession();
+    ~KClientSession() override;
 
-    void Initialize(KSession* parent_, std::string&& name_) {
+    void Initialize(KSession* parent_session_, std::string&& name_) {
         // Set member variables.
-        parent = parent_;
+        parent = parent_session_;
         name = std::move(name_);
     }
 
-    virtual void Destroy() override;
+    void Destroy() override;
     static void PostDestroy([[maybe_unused]] uintptr_t arg) {}
 
     KSession* GetParent() const {

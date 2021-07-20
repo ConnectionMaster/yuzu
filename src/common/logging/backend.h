@@ -1,34 +1,23 @@
 // Copyright 2014 Citra Emulator Project
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
+
 #pragma once
 
-#include <chrono>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
-#include "common/file_util.h"
 #include "common/logging/filter.h"
 #include "common/logging/log.h"
+
+namespace Common::FS {
+class IOFile;
+}
 
 namespace Common::Log {
 
 class Filter;
-
-/**
- * A log entry. Log entries are store in a structured format to permit more varied output
- * formatting on different frontends, as well as facilitating filtering and aggregation.
- */
-struct Entry {
-    std::chrono::microseconds timestamp;
-    Class log_class{};
-    Level log_level{};
-    const char* filename = nullptr;
-    unsigned int line_num = 0;
-    std::string function;
-    std::string message;
-    bool final_entry = false;
-};
 
 /**
  * Interface for logging backends. As loggers can be created and removed at runtime, this can be
@@ -37,6 +26,7 @@ struct Entry {
 class Backend {
 public:
     virtual ~Backend() = default;
+
     virtual void SetFilter(const Filter& new_filter) {
         filter = new_filter;
     }
@@ -52,6 +42,8 @@ private:
  */
 class ConsoleBackend : public Backend {
 public:
+    ~ConsoleBackend() override;
+
     static const char* Name() {
         return "console";
     }
@@ -66,6 +58,8 @@ public:
  */
 class ColorConsoleBackend : public Backend {
 public:
+    ~ColorConsoleBackend() override;
+
     static const char* Name() {
         return "color_console";
     }
@@ -81,7 +75,8 @@ public:
  */
 class FileBackend : public Backend {
 public:
-    explicit FileBackend(const std::string& filename);
+    explicit FileBackend(const std::filesystem::path& filename);
+    ~FileBackend() override;
 
     static const char* Name() {
         return "file";
@@ -94,7 +89,7 @@ public:
     void Write(const Entry& entry) override;
 
 private:
-    FS::IOFile file;
+    std::unique_ptr<FS::IOFile> file;
     std::size_t bytes_written = 0;
 };
 
@@ -103,6 +98,8 @@ private:
  */
 class DebuggerBackend : public Backend {
 public:
+    ~DebuggerBackend() override;
+
     static const char* Name() {
         return "debugger";
     }
@@ -117,17 +114,6 @@ void AddBackend(std::unique_ptr<Backend> backend);
 void RemoveBackend(std::string_view backend_name);
 
 Backend* GetBackend(std::string_view backend_name);
-
-/**
- * Returns the name of the passed log class as a C-string. Subclasses are separated by periods
- * instead of underscores as in the enumeration.
- */
-const char* GetLogClassName(Class log_class);
-
-/**
- * Returns the name of the passed log level as a C-string.
- */
-const char* GetLevelName(Level log_level);
 
 /**
  * The global filter will prevent any messages from even being processed if they are filtered. Each

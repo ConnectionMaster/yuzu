@@ -13,6 +13,7 @@
 #include <boost/container/static_vector.hpp>
 
 #include "common/common_types.h"
+#include "video_core/engines/maxwell_dma.h"
 #include "video_core/rasterizer_accelerated.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_vulkan/blit_image.h"
@@ -49,6 +50,16 @@ struct VKScreenInfo;
 
 class StateTracker;
 
+class AccelerateDMA : public Tegra::Engines::AccelerateDMAInterface {
+public:
+    explicit AccelerateDMA(BufferCache& buffer_cache);
+
+    bool BufferCopy(GPUVAddr start_address, GPUVAddr end_address, u64 amount) override;
+
+private:
+    BufferCache& buffer_cache;
+};
+
 class RasterizerVulkan final : public VideoCore::RasterizerAccelerated {
 public:
     explicit RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
@@ -64,6 +75,7 @@ public:
     void ResetCounter(VideoCore::QueryType type) override;
     void Query(GPUVAddr gpu_addr, VideoCore::QueryType type, std::optional<u64> timestamp) override;
     void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr, u32 size) override;
+    void DisableGraphicsUniformBuffer(size_t stage, u32 index) override;
     void FlushAll() override;
     void FlushRegion(VAddr addr, u64 size) override;
     bool MustFlushRegion(VAddr addr, u64 size) override;
@@ -71,8 +83,10 @@ public:
     void OnCPUWrite(VAddr addr, u64 size) override;
     void SyncGuestHost() override;
     void UnmapMemory(VAddr addr, u64 size) override;
+    void ModifyGPUMemory(GPUVAddr addr, u64 size) override;
     void SignalSemaphore(GPUVAddr addr, u32 value) override;
     void SignalSyncPoint(u32 value) override;
+    void SignalReference() override;
     void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void WaitForIdle() override;
@@ -83,6 +97,7 @@ public:
     bool AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
                                const Tegra::Engines::Fermi2D::Surface& dst,
                                const Tegra::Engines::Fermi2D::Config& copy_config) override;
+    Tegra::Engines::AccelerateDMAInterface& AccessAccelerateDMA() override;
     bool AccelerateDisplay(const Tegra::FramebufferConfig& config, VAddr framebuffer_addr,
                            u32 pixel_stride) override;
 
@@ -183,6 +198,7 @@ private:
     BufferCache buffer_cache;
     VKPipelineCache pipeline_cache;
     VKQueryCache query_cache;
+    AccelerateDMA accelerate_dma;
     VKFenceManager fence_manager;
 
     vk::Event wfi_event;

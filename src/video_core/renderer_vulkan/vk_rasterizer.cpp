@@ -251,7 +251,7 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
       buffer_cache(*this, maxwell3d, kepler_compute, gpu_memory, cpu_memory_, buffer_cache_runtime),
       pipeline_cache(*this, gpu, maxwell3d, kepler_compute, gpu_memory, device, scheduler,
                      descriptor_pool, update_descriptor_queue),
-      query_cache{*this, maxwell3d, gpu_memory, device, scheduler},
+      query_cache{*this, maxwell3d, gpu_memory, device, scheduler}, accelerate_dma{buffer_cache},
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
       wfi_event(device.GetLogical().CreateEvent()), async_shaders(emu_window_) {
     scheduler.SetQueryCache(query_cache);
@@ -357,11 +357,13 @@ void RasterizerVulkan::Clear() {
         .height = std::min(clear_rect.rect.extent.height, render_area.height),
     };
 
-    if (use_color) {
+    const u32 color_attachment = regs.clear_buffers.RT;
+    const auto attachment_aspect_mask = framebuffer->ImageRanges()[color_attachment].aspectMask;
+    const bool is_color_rt = (attachment_aspect_mask & VK_IMAGE_ASPECT_COLOR_BIT) != 0;
+    if (use_color && is_color_rt) {
         VkClearValue clear_value;
         std::memcpy(clear_value.color.float32, regs.clear_color, sizeof(regs.clear_color));
 
-        const u32 color_attachment = regs.clear_buffers.RT;
         scheduler.Record([color_attachment, clear_value, clear_rect](vk::CommandBuffer cmdbuf) {
             const VkClearAttachment attachment{
                 .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -476,6 +478,10 @@ void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAd
     buffer_cache.BindGraphicsUniformBuffer(stage, index, gpu_addr, size);
 }
 
+void Vulkan::RasterizerVulkan::DisableGraphicsUniformBuffer(size_t stage, u32 index) {
+    buffer_cache.DisableGraphicsUniformBuffer(stage, index);
+}
+
 void RasterizerVulkan::FlushAll() {}
 
 void RasterizerVulkan::FlushRegion(VAddr addr, u64 size) {
@@ -553,6 +559,13 @@ void RasterizerVulkan::UnmapMemory(VAddr addr, u64 size) {
     pipeline_cache.OnCPUWrite(addr, size);
 }
 
+void RasterizerVulkan::ModifyGPUMemory(GPUVAddr addr, u64 size) {
+    {
+        std::scoped_lock lock{texture_cache.mutex};
+        texture_cache.UnmapGPUMemory(addr, size);
+    }
+}
+
 void RasterizerVulkan::SignalSemaphore(GPUVAddr addr, u32 value) {
     if (!gpu.IsAsync()) {
         gpu_memory.Write<u32>(addr, value);
@@ -567,6 +580,13 @@ void RasterizerVulkan::SignalSyncPoint(u32 value) {
         return;
     }
     fence_manager.SignalSyncPoint(value);
+}
+
+void RasterizerVulkan::SignalReference() {
+    if (!gpu.IsAsync()) {
+        return;
+    }
+    fence_manager.SignalOrdering();
 }
 
 void RasterizerVulkan::ReleaseFences() {
@@ -601,6 +621,7 @@ void RasterizerVulkan::WaitForIdle() {
         cmdbuf.SetEvent(event, flags);
         cmdbuf.WaitEvents(event, flags, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, {}, {}, {});
     });
+    SignalReference();
 }
 
 void RasterizerVulkan::FragmentBarrier() {
@@ -641,6 +662,10 @@ bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surf
     return true;
 }
 
+Tegra::Engines::AccelerateDMAInterface& RasterizerVulkan::AccessAccelerateDMA() {
+    return accelerate_dma;
+}
+
 bool RasterizerVulkan::AccelerateDisplay(const Tegra::FramebufferConfig& config,
                                          VAddr framebuffer_addr, u32 pixel_stride) {
     if (!framebuffer_addr) {
@@ -677,6 +702,13 @@ void RasterizerVulkan::FlushWork() {
     // This submits commands to the Vulkan driver.
     scheduler.Flush();
     draw_counter = 0;
+}
+
+AccelerateDMA::AccelerateDMA(BufferCache& buffer_cache_) : buffer_cache{buffer_cache_} {}
+
+bool AccelerateDMA::BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount) {
+    std::scoped_lock lock{buffer_cache.mutex};
+    return buffer_cache.DMACopy(src_address, dest_address, amount);
 }
 
 void RasterizerVulkan::SetupShaderDescriptors(

@@ -69,6 +69,9 @@ ImageBase::ImageBase(const ImageInfo& info_, GPUVAddr gpu_addr_, VAddr cpu_addr_
     }
 }
 
+ImageMapView::ImageMapView(GPUVAddr gpu_addr_, VAddr cpu_addr_, size_t size_, ImageId image_id_)
+    : gpu_addr{gpu_addr_}, cpu_addr{cpu_addr_}, size{size_}, image_id{image_id_} {}
+
 std::optional<SubresourceBase> ImageBase::TryFindBase(GPUVAddr other_addr) const noexcept {
     if (other_addr < gpu_addr) {
         // Subresource address can't be lower than the base
@@ -82,7 +85,7 @@ std::optional<SubresourceBase> ImageBase::TryFindBase(GPUVAddr other_addr) const
     if (info.type != ImageType::e3D) {
         const auto [layer, mip_offset] = LayerMipOffset(diff, info.layer_stride);
         const auto end = mip_level_offsets.begin() + info.resources.levels;
-        const auto it = std::find(mip_level_offsets.begin(), end, mip_offset);
+        const auto it = std::find(mip_level_offsets.begin(), end, static_cast<u32>(mip_offset));
         if (layer > info.resources.layers || it == end) {
             return std::nullopt;
         }
@@ -111,6 +114,43 @@ ImageViewId ImageBase::FindView(const ImageViewInfo& view_info) const noexcept {
 void ImageBase::InsertView(const ImageViewInfo& view_info, ImageViewId image_view_id) {
     image_view_infos.push_back(view_info);
     image_view_ids.push_back(image_view_id);
+}
+
+bool ImageBase::IsSafeDownload() const noexcept {
+    // Skip images that were not modified from the GPU
+    if (False(flags & ImageFlagBits::GpuModified)) {
+        return false;
+    }
+    // Skip images that .are. modified from the CPU
+    // We don't want to write sensitive data from the guest
+    if (True(flags & ImageFlagBits::CpuModified)) {
+        return false;
+    }
+    if (info.num_samples > 1) {
+        LOG_WARNING(HW_GPU, "MSAA image downloads are not implemented");
+        return false;
+    }
+    return true;
+}
+
+void ImageBase::CheckBadOverlapState() {
+    if (False(flags & ImageFlagBits::BadOverlap)) {
+        return;
+    }
+    if (!overlapping_images.empty()) {
+        return;
+    }
+    flags &= ~ImageFlagBits::BadOverlap;
+}
+
+void ImageBase::CheckAliasState() {
+    if (False(flags & ImageFlagBits::Alias)) {
+        return;
+    }
+    if (!aliased_images.empty()) {
+        return;
+    }
+    flags &= ~ImageFlagBits::Alias;
 }
 
 void AddImageAlias(ImageBase& lhs, ImageBase& rhs, ImageId lhs_id, ImageId rhs_id) {

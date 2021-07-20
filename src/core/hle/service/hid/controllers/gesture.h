@@ -7,6 +7,7 @@
 #include <array>
 #include "common/bit_field.h"
 #include "common/common_types.h"
+#include "common/point.h"
 #include "core/frontend/input.h"
 #include "core/hle/service/hid/controllers/controller_base.h"
 
@@ -63,29 +64,21 @@ private:
     };
     static_assert(sizeof(Attribute) == 4, "Attribute is an invalid size");
 
-    struct Points {
-        s32_le x;
-        s32_le y;
-    };
-    static_assert(sizeof(Points) == 8, "Points is an invalid size");
-
     struct GestureState {
         s64_le sampling_number;
         s64_le sampling_number2;
         s64_le detection_count;
         TouchType type;
         Direction direction;
-        s32_le x;
-        s32_le y;
-        s32_le delta_x;
-        s32_le delta_y;
+        Common::Point<s32_le> pos;
+        Common::Point<s32_le> delta;
         f32 vel_x;
         f32 vel_y;
         Attribute attributes;
         f32 scale;
         f32 rotation_angle;
         s32_le point_count;
-        std::array<Points, 4> points;
+        std::array<Common::Point<s32_le>, 4> points;
     };
     static_assert(sizeof(GestureState) == 0x68, "GestureState is an invalid size");
 
@@ -96,15 +89,14 @@ private:
     static_assert(sizeof(SharedMemory) == 0x708, "SharedMemory is an invalid size");
 
     struct Finger {
-        f32 x{};
-        f32 y{};
+        Common::Point<f32> pos{};
         bool pressed{};
     };
 
     struct GestureProperties {
-        std::array<Points, MAX_POINTS> points{};
+        std::array<Common::Point<s32_le>, MAX_POINTS> points{};
         std::size_t active_points{};
-        Points mid_point{};
+        Common::Point<s32_le> mid_point{};
         s64_le detection_count{};
         u64_le delta_time{};
         f32 average_distance{};
@@ -148,7 +140,11 @@ private:
                        TouchType& type);
 
     // Returns an unused finger id, if there is no fingers available std::nullopt is returned.
-    std::optional<size_t> GetUnusedFingerID() const;
+    [[nodiscard]] std::optional<size_t> GetUnusedFingerID() const;
+
+    // Retrieves the last gesture entry, as indicated by shared memory indices.
+    [[nodiscard]] GestureState& GetLastGestureEntry();
+    [[nodiscard]] const GestureState& GetLastGestureEntry() const;
 
     /**
      * If the touch is new it tries to assign a new finger id, if there is no fingers available no
@@ -166,10 +162,10 @@ private:
     std::unique_ptr<Input::TouchDevice> touch_mouse_device;
     std::unique_ptr<Input::TouchDevice> touch_udp_device;
     std::unique_ptr<Input::TouchDevice> touch_btn_device;
-    std::array<size_t, MAX_FINGERS> mouse_finger_id;
-    std::array<size_t, MAX_FINGERS> keyboard_finger_id;
-    std::array<size_t, MAX_FINGERS> udp_finger_id;
-    std::array<Finger, MAX_POINTS> fingers;
+    std::array<size_t, MAX_FINGERS> mouse_finger_id{};
+    std::array<size_t, MAX_FINGERS> keyboard_finger_id{};
+    std::array<size_t, MAX_FINGERS> udp_finger_id{};
+    std::array<Finger, MAX_POINTS> fingers{};
     GestureProperties last_gesture{};
     s64_le last_update_timestamp{};
     s64_le last_tap_timestamp{};

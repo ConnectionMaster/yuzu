@@ -47,7 +47,8 @@ void ConfigureAudio::SetConfiguration() {
 
     SetAudioDeviceFromDeviceID();
 
-    ui->volume_slider->setValue(Settings::values.volume.GetValue() * ui->volume_slider->maximum());
+    const auto volume_value = static_cast<int>(Settings::values.volume.GetValue());
+    ui->volume_slider->setValue(volume_value);
 
     ui->toggle_audio_stretching->setChecked(Settings::values.enable_audio_stretching.GetValue());
 
@@ -69,7 +70,7 @@ void ConfigureAudio::SetOutputSinkFromSinkID() {
     [[maybe_unused]] const QSignalBlocker blocker(ui->output_sink_combo_box);
 
     int new_sink_index = 0;
-    const QString sink_id = QString::fromStdString(Settings::values.sink_id);
+    const QString sink_id = QString::fromStdString(Settings::values.sink_id.GetValue());
     for (int index = 0; index < ui->output_sink_combo_box->count(); index++) {
         if (ui->output_sink_combo_box->itemText(index) == sink_id) {
             new_sink_index = index;
@@ -83,7 +84,7 @@ void ConfigureAudio::SetOutputSinkFromSinkID() {
 void ConfigureAudio::SetAudioDeviceFromDeviceID() {
     int new_device_index = -1;
 
-    const QString device_id = QString::fromStdString(Settings::values.audio_device_id);
+    const QString device_id = QString::fromStdString(Settings::values.audio_device_id.GetValue());
     for (int index = 0; index < ui->audio_device_combo_box->count(); index++) {
         if (ui->audio_device_combo_box->itemText(index) == device_id) {
             new_device_index = index;
@@ -106,24 +107,22 @@ void ConfigureAudio::ApplyConfiguration() {
         Settings::values.sink_id =
             ui->output_sink_combo_box->itemText(ui->output_sink_combo_box->currentIndex())
                 .toStdString();
-        Settings::values.audio_device_id =
+        Settings::values.audio_device_id.SetValue(
             ui->audio_device_combo_box->itemText(ui->audio_device_combo_box->currentIndex())
-                .toStdString();
+                .toStdString());
 
         // Guard if during game and set to game-specific value
         if (Settings::values.volume.UsingGlobal()) {
-            Settings::values.volume.SetValue(
-                static_cast<float>(ui->volume_slider->sliderPosition()) /
-                ui->volume_slider->maximum());
+            const auto volume = static_cast<u8>(ui->volume_slider->value());
+            Settings::values.volume.SetValue(volume);
         }
     } else {
         if (ui->volume_combo_box->currentIndex() == 0) {
             Settings::values.volume.SetGlobal(true);
         } else {
             Settings::values.volume.SetGlobal(false);
-            Settings::values.volume.SetValue(
-                static_cast<float>(ui->volume_slider->sliderPosition()) /
-                ui->volume_slider->maximum());
+            const auto volume = static_cast<u8>(ui->volume_slider->value());
+            Settings::values.volume.SetValue(volume);
         }
     }
 }

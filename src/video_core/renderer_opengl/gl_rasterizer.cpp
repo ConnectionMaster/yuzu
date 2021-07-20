@@ -171,7 +171,7 @@ RasterizerOpenGL::RasterizerOpenGL(Core::Frontend::EmuWindow& emu_window_, Tegra
       buffer_cache_runtime(device),
       buffer_cache(*this, maxwell3d, kepler_compute, gpu_memory, cpu_memory_, buffer_cache_runtime),
       shader_cache(*this, emu_window_, gpu, maxwell3d, kepler_compute, gpu_memory, device),
-      query_cache(*this, maxwell3d, gpu_memory),
+      query_cache(*this, maxwell3d, gpu_memory), accelerate_dma(buffer_cache),
       fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache),
       async_shaders(emu_window_) {
     if (device.UseAsynchronousShaders()) {
@@ -351,7 +351,7 @@ void RasterizerOpenGL::SetupShaders(bool is_indexed) {
     }
 }
 
-void RasterizerOpenGL::LoadDiskResources(u64 title_id, const std::atomic_bool& stop_loading,
+void RasterizerOpenGL::LoadDiskResources(u64 title_id, std::stop_token stop_loading,
                                          const VideoCore::DiskResourceLoadCallback& callback) {
     shader_cache.LoadDiskCache(title_id, stop_loading, callback);
 }
@@ -526,6 +526,10 @@ void RasterizerOpenGL::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAd
     buffer_cache.BindGraphicsUniformBuffer(stage, index, gpu_addr, size);
 }
 
+void RasterizerOpenGL::DisableGraphicsUniformBuffer(size_t stage, u32 index) {
+    buffer_cache.DisableGraphicsUniformBuffer(stage, index);
+}
+
 void RasterizerOpenGL::FlushAll() {}
 
 void RasterizerOpenGL::FlushRegion(VAddr addr, u64 size) {
@@ -607,6 +611,13 @@ void RasterizerOpenGL::UnmapMemory(VAddr addr, u64 size) {
     shader_cache.OnCPUWrite(addr, size);
 }
 
+void RasterizerOpenGL::ModifyGPUMemory(GPUVAddr addr, u64 size) {
+    {
+        std::scoped_lock lock{texture_cache.mutex};
+        texture_cache.UnmapGPUMemory(addr, size);
+    }
+}
+
 void RasterizerOpenGL::SignalSemaphore(GPUVAddr addr, u32 value) {
     if (!gpu.IsAsync()) {
         gpu_memory.Write<u32>(addr, value);
@@ -621,6 +632,13 @@ void RasterizerOpenGL::SignalSyncPoint(u32 value) {
         return;
     }
     fence_manager.SignalSyncPoint(value);
+}
+
+void RasterizerOpenGL::SignalReference() {
+    if (!gpu.IsAsync()) {
+        return;
+    }
+    fence_manager.SignalOrdering();
 }
 
 void RasterizerOpenGL::ReleaseFences() {
@@ -639,6 +657,7 @@ void RasterizerOpenGL::FlushAndInvalidateRegion(VAddr addr, u64 size) {
 
 void RasterizerOpenGL::WaitForIdle() {
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    SignalReference();
 }
 
 void RasterizerOpenGL::FragmentBarrier() {
@@ -680,6 +699,10 @@ bool RasterizerOpenGL::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surf
     std::scoped_lock lock{texture_cache.mutex};
     texture_cache.BlitImage(dst, src, copy_config);
     return true;
+}
+
+Tegra::Engines::AccelerateDMAInterface& RasterizerOpenGL::AccessAccelerateDMA() {
+    return accelerate_dma;
 }
 
 bool RasterizerOpenGL::AccelerateDisplay(const Tegra::FramebufferConfig& config,
@@ -1375,6 +1398,13 @@ void RasterizerOpenGL::EndTransformFeedback() {
         return;
     }
     glEndTransformFeedback();
+}
+
+AccelerateDMA::AccelerateDMA(BufferCache& buffer_cache_) : buffer_cache{buffer_cache_} {}
+
+bool AccelerateDMA::BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount) {
+    std::scoped_lock lock{buffer_cache.mutex};
+    return buffer_cache.DMACopy(src_address, dest_address, amount);
 }
 
 } // namespace OpenGL

@@ -2,11 +2,15 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <functional>
+#include <utility>
 #include <QCheckBox>
+#include <QMessageBox>
 #include <QSpinBox>
 #include "common/settings.h"
 #include "core/core.h"
 #include "ui_configure_general.h"
+#include "yuzu/configuration/config.h"
 #include "yuzu/configuration/configuration_shared.h"
 #include "yuzu/configuration/configure_general.h"
 #include "yuzu/uisettings.h"
@@ -23,6 +27,9 @@ ConfigureGeneral::ConfigureGeneral(QWidget* parent)
         connect(ui->toggle_frame_limit, &QCheckBox::clicked, ui->frame_limit,
                 [this]() { ui->frame_limit->setEnabled(ui->toggle_frame_limit->isChecked()); });
     }
+
+    connect(ui->button_reset_defaults, &QPushButton::clicked, this,
+            &ConfigureGeneral::ResetDefaults);
 }
 
 ConfigureGeneral::~ConfigureGeneral() = default;
@@ -33,13 +40,15 @@ void ConfigureGeneral::SetConfiguration() {
     ui->use_multi_core->setEnabled(runtime_lock);
     ui->use_multi_core->setChecked(Settings::values.use_multi_core.GetValue());
 
-    ui->toggle_check_exit->setChecked(UISettings::values.confirm_before_closing);
-    ui->toggle_user_on_boot->setChecked(UISettings::values.select_user_on_boot);
-    ui->toggle_background_pause->setChecked(UISettings::values.pause_when_in_background);
-    ui->toggle_hide_mouse->setChecked(UISettings::values.hide_mouse);
+    ui->toggle_check_exit->setChecked(UISettings::values.confirm_before_closing.GetValue());
+    ui->toggle_user_on_boot->setChecked(UISettings::values.select_user_on_boot.GetValue());
+    ui->toggle_background_pause->setChecked(UISettings::values.pause_when_in_background.GetValue());
+    ui->toggle_hide_mouse->setChecked(UISettings::values.hide_mouse.GetValue());
 
     ui->toggle_frame_limit->setChecked(Settings::values.use_frame_limit.GetValue());
     ui->frame_limit->setValue(Settings::values.frame_limit.GetValue());
+
+    ui->button_reset_defaults->setEnabled(runtime_lock);
 
     if (Settings::IsConfiguringGlobal()) {
         ui->frame_limit->setEnabled(Settings::values.use_frame_limit.GetValue());
@@ -47,6 +56,25 @@ void ConfigureGeneral::SetConfiguration() {
         ui->frame_limit->setEnabled(Settings::values.use_frame_limit.GetValue() &&
                                     use_frame_limit != ConfigurationShared::CheckState::Global);
     }
+}
+
+// Called to set the callback when resetting settings to defaults
+void ConfigureGeneral::SetResetCallback(std::function<void()> callback) {
+    reset_callback = std::move(callback);
+}
+
+void ConfigureGeneral::ResetDefaults() {
+    QMessageBox::StandardButton answer = QMessageBox::question(
+        this, tr("yuzu"),
+        tr("This reset all settings and remove all per-game configurations. This will not delete "
+           "game directories, profiles, or input profiles. Proceed?"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer == QMessageBox::No) {
+        return;
+    }
+    UISettings::values.reset_to_defaults = true;
+    UISettings::values.is_game_list_reload_pending.exchange(true);
+    reset_callback();
 }
 
 void ConfigureGeneral::ApplyConfiguration() {
@@ -104,6 +132,8 @@ void ConfigureGeneral::SetupPerGameUI() {
     ui->toggle_user_on_boot->setVisible(false);
     ui->toggle_background_pause->setVisible(false);
     ui->toggle_hide_mouse->setVisible(false);
+
+    ui->button_reset_defaults->setVisible(false);
 
     ConfigurationShared::SetColoredTristate(ui->toggle_frame_limit,
                                             Settings::values.use_frame_limit, use_frame_limit);

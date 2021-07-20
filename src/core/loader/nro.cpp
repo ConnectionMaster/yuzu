@@ -7,7 +7,6 @@
 
 #include "common/common_funcs.h"
 #include "common/common_types.h"
-#include "common/file_util.h"
 #include "common/logging/log.h"
 #include "common/settings.h"
 #include "common/swap.h"
@@ -156,8 +155,8 @@ static bool LoadNroImpl(Kernel::KProcess& process, const std::vector<u8>& data) 
         codeset.segments[i].size = PageAlignSize(nro_header.segments[i].size);
     }
 
-    if (!Settings::values.program_args.empty()) {
-        const auto arg_data = Settings::values.program_args;
+    if (!Settings::values.program_args.GetValue().empty()) {
+        const auto arg_data = Settings::values.program_args.GetValue();
         codeset.DataSegment().size += NSO_ARGUMENT_DATA_ALLOCATION_SIZE;
         NSOArgumentHeader args_header{
             NSO_ARGUMENT_DATA_ALLOCATION_SIZE, static_cast<u32_le>(arg_data.size()), {}};

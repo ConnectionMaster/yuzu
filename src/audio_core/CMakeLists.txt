@@ -42,6 +42,7 @@ add_library(audio_core STATIC
     voice_context.h
 
     $<$<BOOL:${ENABLE_CUBEB}>:cubeb_sink.cpp cubeb_sink.h>
+    $<$<BOOL:${ENABLE_SDL2}>:sdl2_sink.cpp sdl2_sink.h>
 )
 
 create_target_directory_groups(audio_core)
@@ -50,9 +51,6 @@ if (NOT MSVC)
     target_compile_options(audio_core PRIVATE
         -Werror=conversion
         -Werror=ignored-qualifiers
-        -Werror=implicit-fallthrough
-        -Werror=reorder
-        -Werror=sign-compare
         -Werror=shadow
         -Werror=unused-parameter
         -Werror=unused-variable
@@ -70,4 +68,8 @@ target_link_libraries(audio_core PRIVATE SoundTouch)
 if(ENABLE_CUBEB)
     target_link_libraries(audio_core PRIVATE cubeb)
     target_compile_definitions(audio_core PRIVATE -DHAVE_CUBEB=1)
+endif()
+if(ENABLE_SDL2)
+    target_link_libraries(audio_core PRIVATE SDL2)
+    target_compile_definitions(audio_core PRIVATE HAVE_SDL2)
 endif()

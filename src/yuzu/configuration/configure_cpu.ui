@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>400</width>
-    <height>321</height>
+    <width>448</width>
+    <height>433</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,7 +17,7 @@
    <item>
     <layout class="QVBoxLayout">
      <item>
-      <widget class="QGroupBox">
+      <widget class="QGroupBox" name="groupBox">
        <property name="title">
         <string>General</string>
        </property>
@@ -26,7 +26,7 @@
          <widget class="QWidget" name="widget_accuracy" native="true">
           <layout class="QHBoxLayout" name="layout_accuracy">
            <item>
-            <widget class="QLabel" name="label">
+            <widget class="QLabel" name="label_accuracy">
              <property name="text">
               <string>Accuracy:</string>
              </property>
@@ -34,6 +34,11 @@
            </item>
            <item>
             <widget class="QComboBox" name="accuracy">
+             <item>
+              <property name="text">
+               <string>Auto</string>
+              </property>
+             </item>
              <item>
               <property name="text">
                <string>Accurate</string>
@@ -44,20 +49,15 @@
                <string>Unsafe</string>
               </property>
              </item>
-             <item>
-              <property name="text">
-               <string>Enable Debug Mode</string>
-              </property>
-             </item>
             </widget>
            </item>
           </layout>
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="label">
+         <widget class="QLabel" name="label_recommended_accuracy">
           <property name="text">
-           <string>We recommend setting accuracy to &quot;Accurate&quot;.</string>
+           <string>We recommend setting accuracy to &quot;Auto&quot;.</string>
           </property>
           <property name="wordWrap">
            <bool>false</bool>
@@ -78,7 +78,7 @@
        </property>
        <layout class="QVBoxLayout">
         <item>
-         <widget class="QLabel" name="label">
+         <widget class="QLabel" name="label_accuracy_description">
           <property name="text">
            <string>These settings reduce accuracy for speed.</string>
           </property>
@@ -112,6 +112,18 @@
          </widget>
         </item>
         <item>
+         <widget class="QCheckBox" name="cpuopt_unsafe_ignore_standard_fpcr">
+          <property name="toolTip">
+           <string>
+            &lt;div&gt;This option improves the speed of 32 bits ASIMD floating-point functions by running with incorrect rounding modes.&lt;/div&gt;
+           </string>
+          </property>
+          <property name="text">
+           <string>Faster ASIMD instructions (32 bits only)</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QCheckBox" name="cpuopt_unsafe_inaccurate_nan">
           <property name="toolTip">
            <string>
@@ -120,6 +132,18 @@
           </property>
           <property name="text">
            <string>Inaccurate NaN handling</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="cpuopt_unsafe_fastmem_check">
+          <property name="toolTip">
+           <string>
+            &lt;div&gt;This option improves speed by eliminating a safety check before every memory read/write in guest. Disabling it may allow a game to read/write the emulator's memory.&lt;/div&gt;
+           </string>
+          </property>
+          <property name="text">
+           <string>Disable address space checks</string>
           </property>
          </widget>
         </item>

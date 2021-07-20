@@ -9,6 +9,9 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+
+#include <SDL.h>
+
 #include "common/common_types.h"
 #include "common/threadsafe_queue.h"
 #include "input_common/sdl/sdl.h"
@@ -17,6 +20,11 @@ union SDL_Event;
 using SDL_GameController = struct _SDL_GameController;
 using SDL_Joystick = struct _SDL_Joystick;
 using SDL_JoystickID = s32;
+
+using ButtonBindings =
+    std::array<std::pair<Settings::NativeButton::Values, SDL_GameControllerButton>, 17>;
+using ZButtonBindings =
+    std::array<std::pair<Settings::NativeButton::Values, SDL_GameControllerAxis>, 2>;
 
 namespace InputCommon::SDL {
 
@@ -66,8 +74,25 @@ private:
     /// Needs to be called before SDL_QuitSubSystem.
     void CloseJoysticks();
 
-    /// Returns a custom name for specific controllers because the default name is not correct
-    std::string GetControllerName(SDL_GameController* controller) const;
+    /// Returns the default button bindings list for generic controllers
+    ButtonBindings GetDefaultButtonBinding() const;
+
+    /// Returns the default button bindings list for nintendo controllers
+    ButtonBindings GetNintendoButtonBinding(const std::shared_ptr<SDLJoystick>& joystick) const;
+
+    /// Returns the button mappings from a single controller
+    ButtonMapping GetSingleControllerMapping(const std::shared_ptr<SDLJoystick>& joystick,
+                                             const ButtonBindings& switch_to_sdl_button,
+                                             const ZButtonBindings& switch_to_sdl_axis) const;
+
+    /// Returns the button mappings from two different controllers
+    ButtonMapping GetDualControllerMapping(const std::shared_ptr<SDLJoystick>& joystick,
+                                           const std::shared_ptr<SDLJoystick>& joystick2,
+                                           const ButtonBindings& switch_to_sdl_button,
+                                           const ZButtonBindings& switch_to_sdl_axis) const;
+
+    /// Returns true if the button is on the left joycon
+    bool IsButtonOnLeftSide(Settings::NativeButton::Values button) const;
 
     // Set to true if SDL supports game controller subsystem
     bool has_gamecontroller = false;

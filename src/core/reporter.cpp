@@ -11,7 +11,9 @@
 #include <fmt/ostream.h>
 #include <nlohmann/json.hpp>
 
-#include "common/file_util.h"
+#include "common/fs/file.h"
+#include "common/fs/fs.h"
+#include "common/fs/path_util.h"
 #include "common/hex_util.h"
 #include "common/scm_rev.h"
 #include "common/settings.h"
@@ -26,10 +28,9 @@
 
 namespace {
 
-std::string GetPath(std::string_view type, u64 title_id, std::string_view timestamp) {
-    return fmt::format("{}{}/{:016X}_{}.json",
-                       Common::FS::GetUserPath(Common::FS::UserPath::LogDir), type, title_id,
-                       timestamp);
+std::filesystem::path GetPath(std::string_view type, u64 title_id, std::string_view timestamp) {
+    return Common::FS::GetYuzuPath(Common::FS::YuzuPath::LogDir) / type /
+           fmt::format("{:016X}_{}.json", title_id, timestamp);
 }
 
 std::string GetTimestamp() {
@@ -39,14 +40,16 @@ std::string GetTimestamp() {
 
 using namespace nlohmann;
 
-void SaveToFile(json json, const std::string& filename) {
-    if (!Common::FS::CreateFullPath(filename)) {
-        LOG_ERROR(Core, "Failed to create path for '{}' to save report!", filename);
+void SaveToFile(json json, const std::filesystem::path& filename) {
+    if (!Common::FS::CreateParentDirs(filename)) {
+        LOG_ERROR(Core, "Failed to create path for '{}' to save report!",
+                  Common::FS::PathToUTF8String(filename));
         return;
     }
 
-    std::ofstream file(
-        Common::FS::SanitizePath(filename, Common::FS::DirectorySeparator::PlatformDefault));
+    std::ofstream file;
+    Common::FS::OpenFileStream(file, filename, std::ios_base::out | std::ios_base::trunc);
+
     file << std::setw(4) << json << std::endl;
 }
 
@@ -141,7 +144,7 @@ json GetFullDataAuto(const std::string& timestamp, u64 title_id, Core::System& s
     json out;
 
     out["yuzu_version"] = GetYuzuVersionData();
-    out["report_common"] = GetReportCommonData(title_id, RESULT_SUCCESS, timestamp);
+    out["report_common"] = GetReportCommonData(title_id, ResultSuccess, timestamp);
     out["processor_state"] = GetProcessorStateDataAuto(system);
     out["backtrace"] = GetBacktraceData(system);
 
@@ -192,7 +195,9 @@ json GetHLERequestContextData(Kernel::HLERequestContext& ctx, Core::Memory::Memo
 
 namespace Core {
 
-Reporter::Reporter(System& system_) : system(system_) {}
+Reporter::Reporter(System& system_) : system(system_) {
+    ClearFSAccessLog();
+}
 
 Reporter::~Reporter() = default;
 
@@ -319,7 +324,7 @@ void Reporter::SavePlayReport(PlayReportType type, u64 title_id, std::vector<std
     json out;
 
     out["yuzu_version"] = GetYuzuVersionData();
-    out["report_common"] = GetReportCommonData(title_id, RESULT_SUCCESS, timestamp, user_id);
+    out["report_common"] = GetReportCommonData(title_id, ResultSuccess, timestamp, user_id);
 
     auto data_out = json::array();
     for (const auto& d : data) {
@@ -359,22 +364,12 @@ void Reporter::SaveErrorReport(u64 title_id, ResultCode result,
     SaveToFile(std::move(out), GetPath("error_report", title_id, timestamp));
 }
 
-void Reporter::SaveFilesystemAccessReport(Service::FileSystem::LogMode log_mode,
-                                          std::string log_message) const {
-    if (!IsReportingEnabled())
-        return;
+void Reporter::SaveFSAccessLog(std::string_view log_message) const {
+    const auto access_log_path =
+        Common::FS::GetYuzuPath(Common::FS::YuzuPath::SDMCDir) / "FsAccessLog.txt";
 
-    const auto timestamp = GetTimestamp();
-    const auto title_id = system.CurrentProcess()->GetTitleID();
-    json out;
-
-    out["yuzu_version"] = GetYuzuVersionData();
-    out["report_common"] = GetReportCommonData(title_id, RESULT_SUCCESS, timestamp);
-
-    out["log_mode"] = fmt::format("{:08X}", static_cast<u32>(log_mode));
-    out["log_message"] = std::move(log_message);
-
-    SaveToFile(std::move(out), GetPath("filesystem_access_report", title_id, timestamp));
+    void(Common::FS::AppendStringToFile(access_log_path, Common::FS::FileType::TextFile,
+                                        log_message));
 }
 
 void Reporter::SaveUserReport() const {
@@ -389,8 +384,20 @@ void Reporter::SaveUserReport() const {
                GetPath("user_report", title_id, timestamp));
 }
 
+void Reporter::ClearFSAccessLog() const {
+    const auto access_log_path =
+        Common::FS::GetYuzuPath(Common::FS::YuzuPath::SDMCDir) / "FsAccessLog.txt";
+
+    Common::FS::IOFile access_log_file{access_log_path, Common::FS::FileAccessMode::Write,
+                                       Common::FS::FileType::TextFile};
+
+    if (!access_log_file.IsOpen()) {
+        LOG_ERROR(Common_Filesystem, "Failed to clear the filesystem access log.");
+    }
+}
+
 bool Reporter::IsReportingEnabled() const {
-    return Settings::values.reporting_services;
+    return Settings::values.reporting_services.GetValue();
 }
 
 } // namespace Core

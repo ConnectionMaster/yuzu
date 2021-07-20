@@ -21,7 +21,7 @@
 #include "core/hle/service/aoc/aoc_u.h"
 #include "core/hle/service/apm/apm.h"
 #include "core/hle/service/audio/audio.h"
-#include "core/hle/service/bcat/module.h"
+#include "core/hle/service/bcat/bcat_module.h"
 #include "core/hle/service/bpc/bpc.h"
 #include "core/hle/service/btdrv/btdrv.h"
 #include "core/hle/service/btm/btm.h"
@@ -54,7 +54,7 @@
 #include "core/hle/service/nvflinger/nvflinger.h"
 #include "core/hle/service/olsc/olsc.h"
 #include "core/hle/service/pcie/pcie.h"
-#include "core/hle/service/pctl/module.h"
+#include "core/hle/service/pctl/pctl_module.h"
 #include "core/hle/service/pcv/pcv.h"
 #include "core/hle/service/pm/pm.h"
 #include "core/hle/service/prepo/prepo.h"
@@ -64,7 +64,7 @@
 #include "core/hle/service/set/settings.h"
 #include "core/hle/service/sm/sm.h"
 #include "core/hle/service/sockets/sockets.h"
-#include "core/hle/service/spl/module.h"
+#include "core/hle/service/spl/spl_module.h"
 #include "core/hle/service/ssl/ssl.h"
 #include "core/hle/service/time/time.h"
 #include "core/hle/service/usb/usb.h"
@@ -93,8 +93,8 @@ namespace Service {
 
 ServiceFrameworkBase::ServiceFrameworkBase(Core::System& system_, const char* service_name_,
                                            u32 max_sessions_, InvokerFn* handler_invoker_)
-    : system{system_}, service_name{service_name_}, max_sessions{max_sessions_},
-      handler_invoker{handler_invoker_} {}
+    : SessionRequestHandler(system_.Kernel(), service_name_), system{system_},
+      service_name{service_name_}, max_sessions{max_sessions_}, handler_invoker{handler_invoker_} {}
 
 ServiceFrameworkBase::~ServiceFrameworkBase() {
     // Wait for other threads to release access before destroying
@@ -111,7 +111,7 @@ void ServiceFrameworkBase::InstallAsService(SM::ServiceManager& service_manager)
     port_installed = true;
 }
 
-Kernel::KClientPort& ServiceFrameworkBase::CreatePort(Kernel::KernelCore& kernel) {
+Kernel::KClientPort& ServiceFrameworkBase::CreatePort() {
     const auto guard = LockService();
 
     ASSERT(!port_installed);
@@ -149,10 +149,10 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(Kernel::HLERequestContext
     std::string function_name = info == nullptr ? fmt::format("{}", ctx.GetCommand()) : info->name;
 
     fmt::memory_buffer buf;
-    fmt::format_to(buf, "function '{}': port='{}' cmd_buf={{[0]=0x{:X}", function_name,
-                   service_name, cmd_buf[0]);
+    fmt::format_to(std::back_inserter(buf), "function '{}': port='{}' cmd_buf={{[0]=0x{:X}",
+                   function_name, service_name, cmd_buf[0]);
     for (int i = 1; i <= 8; ++i) {
-        fmt::format_to(buf, ", [{}]=0x{:X}", i, cmd_buf[i]);
+        fmt::format_to(std::back_inserter(buf), ", [{}]=0x{:X}", i, cmd_buf[i]);
     }
     buf.push_back('}');
 
@@ -162,7 +162,7 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(Kernel::HLERequestContext
     if (Settings::values.use_auto_stub) {
         LOG_WARNING(Service, "Using auto stub fallback!");
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(RESULT_SUCCESS);
+        rb.Push(ResultSuccess);
     }
 }
 
@@ -200,7 +200,7 @@ ResultCode ServiceFrameworkBase::HandleSyncRequest(Kernel::KServerSession& sessi
     case IPC::CommandType::TIPC_Close: {
         session.Close();
         IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(RESULT_SUCCESS);
+        rb.Push(ResultSuccess);
         return IPC::ERR_REMOTE_PROCESS_DEAD;
     }
     case IPC::CommandType::ControlWithContext:
@@ -228,7 +228,7 @@ ResultCode ServiceFrameworkBase::HandleSyncRequest(Kernel::KServerSession& sessi
         ctx.WriteToOutgoingCommandBuffer(ctx.GetThread());
     }
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 /// Initialize Services

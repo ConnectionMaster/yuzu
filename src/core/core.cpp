@@ -3,10 +3,11 @@
 // Refer to the license.txt file included.
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <utility>
 
-#include "common/file_util.h"
+#include "common/fs/fs.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
 #include "common/settings.h"
@@ -34,9 +35,9 @@
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/kernel/physical_core.h"
 #include "core/hle/service/am/applets/applets.h"
-#include "core/hle/service/apm/controller.h"
+#include "core/hle/service/apm/apm_controller.h"
 #include "core/hle/service/filesystem/filesystem.h"
-#include "core/hle/service/glue/manager.h"
+#include "core/hle/service/glue/glue_manager.h"
 #include "core/hle/service/hid/hid.h"
 #include "core/hle/service/service.h"
 #include "core/hle/service/sm/sm.h"
@@ -121,7 +122,7 @@ FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
                                                                   dir->GetName());
     }
 
-    if (Common::FS::IsDirectory(path)) {
+    if (Common::FS::IsDir(path)) {
         return vfs->OpenFile(path + "/main", FileSys::Mode::Read);
     }
 
@@ -215,9 +216,9 @@ struct System::Impl {
     }
 
     ResultStatus Load(System& system, Frontend::EmuWindow& emu_window, const std::string& filepath,
-                      std::size_t program_index) {
+                      u64 program_id, std::size_t program_index) {
         app_loader = Loader::GetLoader(system, GetGameFileFromPath(virtual_filesystem, filepath),
-                                       program_index);
+                                       program_id, program_index);
 
         if (!app_loader) {
             LOG_CRITICAL(Core, "Failed to obtain loader for {}!", filepath);
@@ -262,17 +263,16 @@ struct System::Impl {
         if (Settings::values.gamecard_inserted) {
             if (Settings::values.gamecard_current_game) {
                 fs_controller.SetGameCard(GetGameFileFromPath(virtual_filesystem, filepath));
-            } else if (!Settings::values.gamecard_path.empty()) {
-                fs_controller.SetGameCard(
-                    GetGameFileFromPath(virtual_filesystem, Settings::values.gamecard_path));
+            } else if (!Settings::values.gamecard_path.GetValue().empty()) {
+                const auto gamecard_path = Settings::values.gamecard_path.GetValue();
+                fs_controller.SetGameCard(GetGameFileFromPath(virtual_filesystem, gamecard_path));
             }
         }
 
-        u64 title_id{0};
-        if (app_loader->ReadProgramId(title_id) != Loader::ResultStatus::Success) {
+        if (app_loader->ReadProgramId(program_id) != Loader::ResultStatus::Success) {
             LOG_ERROR(Core, "Failed to find title id for ROM (Error {})", load_result);
         }
-        perf_stats = std::make_unique<PerfStats>(title_id);
+        perf_stats = std::make_unique<PerfStats>(program_id);
         // Reset counters and set time origin to current frame
         GetAndResetPerfStats();
         perf_stats->BeginSystemFrame();
@@ -377,7 +377,7 @@ struct System::Impl {
     std::unique_ptr<Core::DeviceMemory> device_memory;
     Core::Memory::Memory memory;
     CpuManager cpu_manager;
-    bool is_powered_on = false;
+    std::atomic_bool is_powered_on{};
     bool exit_lock = false;
 
     Reporter reporter;
@@ -458,12 +458,12 @@ void System::Shutdown() {
 }
 
 System::ResultStatus System::Load(Frontend::EmuWindow& emu_window, const std::string& filepath,
-                                  std::size_t program_index) {
-    return impl->Load(*this, emu_window, filepath, program_index);
+                                  u64 program_id, std::size_t program_index) {
+    return impl->Load(*this, emu_window, filepath, program_id, program_index);
 }
 
 bool System::IsPoweredOn() const {
-    return impl->is_powered_on;
+    return impl->is_powered_on.load(std::memory_order::relaxed);
 }
 
 void System::PrepareReschedule() {

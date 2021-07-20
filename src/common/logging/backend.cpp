@@ -11,13 +11,16 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+
 #ifdef _WIN32
-#include <share.h>   // For _SH_DENYWR
 #include <windows.h> // For OutputDebugStringW
-#else
-#define _SH_DENYWR 0
 #endif
+
 #include "common/assert.h"
+#include "common/fs/file.h"
+#include "common/fs/fs.h"
+#include "common/literals.h"
+
 #include "common/logging/backend.h"
 #include "common/logging/log.h"
 #include "common/logging/text_formatter.h"
@@ -97,8 +100,8 @@ private:
                 write_logs(entry);
             }
 
-            // Drain the logging queue. Only writes out up to MAX_LOGS_TO_WRITE to prevent a case
-            // where a system is repeatedly spamming logs even on close.
+            // Drain the logging queue. Only writes out up to MAX_LOGS_TO_WRITE to prevent a
+            // case where a system is repeatedly spamming logs even on close.
             const int MAX_LOGS_TO_WRITE = filter.IsDebug() ? INT_MAX : 100;
             int logs_written = 0;
             while (logs_written++ < MAX_LOGS_TO_WRITE && message_queue.Pop(entry)) {
@@ -140,184 +143,65 @@ private:
     std::chrono::steady_clock::time_point time_origin{std::chrono::steady_clock::now()};
 };
 
+ConsoleBackend::~ConsoleBackend() = default;
+
 void ConsoleBackend::Write(const Entry& entry) {
     PrintMessage(entry);
 }
+
+ColorConsoleBackend::~ColorConsoleBackend() = default;
 
 void ColorConsoleBackend::Write(const Entry& entry) {
     PrintColoredMessage(entry);
 }
 
-FileBackend::FileBackend(const std::string& filename) {
-    const auto old_filename = filename + ".old.txt";
+FileBackend::FileBackend(const std::filesystem::path& filename) {
+    auto old_filename = filename;
+    old_filename += ".old.txt";
 
-    if (FS::Exists(old_filename)) {
-        FS::Delete(old_filename);
-    }
-    if (FS::Exists(filename)) {
-        FS::Rename(filename, old_filename);
-    }
+    // Existence checks are done within the functions themselves.
+    // We don't particularly care if these succeed or not.
+    FS::RemoveFile(old_filename);
+    void(FS::RenameFile(filename, old_filename));
 
-    // _SH_DENYWR allows read only access to the file for other programs.
-    // It is #defined to 0 on other platforms
-    file = FS::IOFile(filename, "w", _SH_DENYWR);
+    file =
+        std::make_unique<FS::IOFile>(filename, FS::FileAccessMode::Write, FS::FileType::TextFile);
 }
+
+FileBackend::~FileBackend() = default;
 
 void FileBackend::Write(const Entry& entry) {
-    // prevent logs from going over the maximum size (in case its spamming and the user doesn't
-    // know)
-    constexpr std::size_t MAX_BYTES_WRITTEN = 100 * 1024 * 1024;
-    constexpr std::size_t MAX_BYTES_WRITTEN_EXTENDED = 1024 * 1024 * 1024;
-
-    if (!file.IsOpen()) {
+    if (!file->IsOpen()) {
         return;
     }
 
-    if (Settings::values.extended_logging && bytes_written > MAX_BYTES_WRITTEN_EXTENDED) {
-        return;
-    } else if (!Settings::values.extended_logging && bytes_written > MAX_BYTES_WRITTEN) {
+    using namespace Common::Literals;
+    // Prevent logs from exceeding a set maximum size in the event that log entries are spammed.
+    constexpr std::size_t MAX_BYTES_WRITTEN = 100_MiB;
+    constexpr std::size_t MAX_BYTES_WRITTEN_EXTENDED = 1_GiB;
+
+    const bool write_limit_exceeded =
+        bytes_written > MAX_BYTES_WRITTEN_EXTENDED ||
+        (bytes_written > MAX_BYTES_WRITTEN && !Settings::values.extended_logging);
+
+    // Close the file after the write limit is exceeded.
+    if (write_limit_exceeded) {
+        file->Close();
         return;
     }
 
-    bytes_written += file.WriteString(FormatLogMessage(entry).append(1, '\n'));
+    bytes_written += file->WriteString(FormatLogMessage(entry).append(1, '\n'));
     if (entry.log_level >= Level::Error) {
-        file.Flush();
+        file->Flush();
     }
 }
+
+DebuggerBackend::~DebuggerBackend() = default;
 
 void DebuggerBackend::Write(const Entry& entry) {
 #ifdef _WIN32
     ::OutputDebugStringW(UTF8ToUTF16W(FormatLogMessage(entry).append(1, '\n')).c_str());
 #endif
-}
-
-/// Macro listing all log classes. Code should define CLS and SUB as desired before invoking this.
-#define ALL_LOG_CLASSES()                                                                          \
-    CLS(Log)                                                                                       \
-    CLS(Common)                                                                                    \
-    SUB(Common, Filesystem)                                                                        \
-    SUB(Common, Memory)                                                                            \
-    CLS(Core)                                                                                      \
-    SUB(Core, ARM)                                                                                 \
-    SUB(Core, Timing)                                                                              \
-    CLS(Config)                                                                                    \
-    CLS(Debug)                                                                                     \
-    SUB(Debug, Emulated)                                                                           \
-    SUB(Debug, GPU)                                                                                \
-    SUB(Debug, Breakpoint)                                                                         \
-    SUB(Debug, GDBStub)                                                                            \
-    CLS(Kernel)                                                                                    \
-    SUB(Kernel, SVC)                                                                               \
-    CLS(Service)                                                                                   \
-    SUB(Service, ACC)                                                                              \
-    SUB(Service, Audio)                                                                            \
-    SUB(Service, AM)                                                                               \
-    SUB(Service, AOC)                                                                              \
-    SUB(Service, APM)                                                                              \
-    SUB(Service, ARP)                                                                              \
-    SUB(Service, BCAT)                                                                             \
-    SUB(Service, BPC)                                                                              \
-    SUB(Service, BGTC)                                                                             \
-    SUB(Service, BTDRV)                                                                            \
-    SUB(Service, BTM)                                                                              \
-    SUB(Service, Capture)                                                                          \
-    SUB(Service, ERPT)                                                                             \
-    SUB(Service, ETicket)                                                                          \
-    SUB(Service, EUPLD)                                                                            \
-    SUB(Service, Fatal)                                                                            \
-    SUB(Service, FGM)                                                                              \
-    SUB(Service, Friend)                                                                           \
-    SUB(Service, FS)                                                                               \
-    SUB(Service, GRC)                                                                              \
-    SUB(Service, HID)                                                                              \
-    SUB(Service, IRS)                                                                              \
-    SUB(Service, LBL)                                                                              \
-    SUB(Service, LDN)                                                                              \
-    SUB(Service, LDR)                                                                              \
-    SUB(Service, LM)                                                                               \
-    SUB(Service, Migration)                                                                        \
-    SUB(Service, Mii)                                                                              \
-    SUB(Service, MM)                                                                               \
-    SUB(Service, NCM)                                                                              \
-    SUB(Service, NFC)                                                                              \
-    SUB(Service, NFP)                                                                              \
-    SUB(Service, NIFM)                                                                             \
-    SUB(Service, NIM)                                                                              \
-    SUB(Service, NPNS)                                                                             \
-    SUB(Service, NS)                                                                               \
-    SUB(Service, NVDRV)                                                                            \
-    SUB(Service, OLSC)                                                                             \
-    SUB(Service, PCIE)                                                                             \
-    SUB(Service, PCTL)                                                                             \
-    SUB(Service, PCV)                                                                              \
-    SUB(Service, PM)                                                                               \
-    SUB(Service, PREPO)                                                                            \
-    SUB(Service, PSC)                                                                              \
-    SUB(Service, PSM)                                                                              \
-    SUB(Service, SET)                                                                              \
-    SUB(Service, SM)                                                                               \
-    SUB(Service, SPL)                                                                              \
-    SUB(Service, SSL)                                                                              \
-    SUB(Service, TCAP)                                                                             \
-    SUB(Service, Time)                                                                             \
-    SUB(Service, USB)                                                                              \
-    SUB(Service, VI)                                                                               \
-    SUB(Service, WLAN)                                                                             \
-    CLS(HW)                                                                                        \
-    SUB(HW, Memory)                                                                                \
-    SUB(HW, LCD)                                                                                   \
-    SUB(HW, GPU)                                                                                   \
-    SUB(HW, AES)                                                                                   \
-    CLS(IPC)                                                                                       \
-    CLS(Frontend)                                                                                  \
-    CLS(Render)                                                                                    \
-    SUB(Render, Software)                                                                          \
-    SUB(Render, OpenGL)                                                                            \
-    SUB(Render, Vulkan)                                                                            \
-    CLS(Audio)                                                                                     \
-    SUB(Audio, DSP)                                                                                \
-    SUB(Audio, Sink)                                                                               \
-    CLS(Input)                                                                                     \
-    CLS(Network)                                                                                   \
-    CLS(Loader)                                                                                    \
-    CLS(CheatEngine)                                                                               \
-    CLS(Crypto)                                                                                    \
-    CLS(WebService)
-
-// GetClassName is a macro defined by Windows.h, grrr...
-const char* GetLogClassName(Class log_class) {
-    switch (log_class) {
-#define CLS(x)                                                                                     \
-    case Class::x:                                                                                 \
-        return #x;
-#define SUB(x, y)                                                                                  \
-    case Class::x##_##y:                                                                           \
-        return #x "." #y;
-        ALL_LOG_CLASSES()
-#undef CLS
-#undef SUB
-    case Class::Count:
-        break;
-    }
-    return "Invalid";
-}
-
-const char* GetLevelName(Level log_level) {
-#define LVL(x)                                                                                     \
-    case Level::x:                                                                                 \
-        return #x
-    switch (log_level) {
-        LVL(Trace);
-        LVL(Debug);
-        LVL(Info);
-        LVL(Warning);
-        LVL(Error);
-        LVL(Critical);
-    case Level::Count:
-        break;
-    }
-#undef LVL
-    return "Invalid";
 }
 
 void SetGlobalFilter(const Filter& filter) {

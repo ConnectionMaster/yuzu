@@ -4,23 +4,30 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/CMakeModules)
 
+# Set the RPATH for Qt Libraries
+# This must be done before the `yuzu` target is created
+if (YUZU_USE_BUNDLED_QT AND (${CMAKE_SYSTEM_NAME} STREQUAL "Linux"))
+    set(CMAKE_BUILD_RPATH "${CMAKE_BINARY_DIR}/bin/lib/")
+endif()
+
 add_executable(yuzu
     Info.plist
     about_dialog.cpp
     about_dialog.h
     aboutdialog.ui
-    applets/controller.cpp
-    applets/controller.h
-    applets/controller.ui
-    applets/error.cpp
-    applets/error.h
-    applets/profile_select.cpp
-    applets/profile_select.h
-    applets/software_keyboard.cpp
-    applets/software_keyboard.h
-    applets/software_keyboard.ui
-    applets/web_browser.cpp
-    applets/web_browser.h
+    applets/qt_controller.cpp
+    applets/qt_controller.h
+    applets/qt_controller.ui
+    applets/qt_error.cpp
+    applets/qt_error.h
+    applets/qt_profile_select.cpp
+    applets/qt_profile_select.h
+    applets/qt_software_keyboard.cpp
+    applets/qt_software_keyboard.h
+    applets/qt_software_keyboard.ui
+    applets/qt_web_browser.cpp
+    applets/qt_web_browser.h
+    applets/qt_web_browser_scripts.h
     bootmanager.cpp
     bootmanager.h
     compatdb.ui
@@ -46,6 +53,9 @@ add_executable(yuzu
     configuration/configure_debug_controller.cpp
     configuration/configure_debug_controller.h
     configuration/configure_debug_controller.ui
+    configuration/configure_debug_tab.cpp
+    configuration/configure_debug_tab.h
+    configuration/configure_debug_tab.ui
     configuration/configure_dialog.cpp
     configuration/configure_dialog.h
     configuration/configure_filesystem.cpp
@@ -278,11 +288,14 @@ if(UNIX AND NOT APPLE)
     install(TARGETS yuzu RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
 endif()
 
-if (MSVC)
+if (YUZU_USE_BUNDLED_QT)
     include(CopyYuzuQt5Deps)
+    copy_yuzu_Qt5_deps(yuzu)
+endif()
+
+if (MSVC)
     include(CopyYuzuSDLDeps)
     include(CopyYuzuFFmpegDeps)
-    copy_yuzu_Qt5_deps(yuzu)
     copy_yuzu_SDL_deps(yuzu)
     copy_yuzu_FFmpeg_deps(yuzu)
 endif()

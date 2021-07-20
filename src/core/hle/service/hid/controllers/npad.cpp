@@ -314,6 +314,8 @@ void Controller_NPad::OnInit() {
 
 void Controller_NPad::OnLoadInputDevices() {
     const auto& players = Settings::values.players.GetValue();
+
+    std::lock_guard lock{mutex};
     for (std::size_t i = 0; i < players.size(); ++i) {
         std::transform(players[i].buttons.begin() + Settings::NativeButton::BUTTON_HID_BEGIN,
                        players[i].buttons.begin() + Settings::NativeButton::BUTTON_HID_END,
@@ -348,6 +350,8 @@ void Controller_NPad::OnRelease() {
 }
 
 void Controller_NPad::RequestPadStateUpdate(u32 npad_id) {
+    std::lock_guard lock{mutex};
+
     const auto controller_idx = NPadIdToIndex(npad_id);
     const auto controller_type = connected_controllers[controller_idx].type;
     if (!connected_controllers[controller_idx].is_connected) {
@@ -937,6 +941,11 @@ void Controller_NPad::InitializeVibrationDevice(const DeviceHandle& vibration_de
 
 void Controller_NPad::InitializeVibrationDeviceAtIndex(std::size_t npad_index,
                                                        std::size_t device_index) {
+    if (!Settings::values.vibration_enabled.GetValue()) {
+        vibration_devices_mounted[npad_index][device_index] = false;
+        return;
+    }
+
     if (vibrations[npad_index][device_index]) {
         vibration_devices_mounted[npad_index][device_index] =
             vibrations[npad_index][device_index]->GetStatus() == 1;

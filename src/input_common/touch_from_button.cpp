@@ -2,6 +2,7 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <algorithm>
 #include "common/settings.h"
 #include "core/frontend/framebuffer_layout.h"
 #include "input_common/touch_from_button.h"
@@ -12,7 +13,7 @@ class TouchFromButtonDevice final : public Input::TouchDevice {
 public:
     TouchFromButtonDevice() {
         const auto button_index =
-            static_cast<std::size_t>(Settings::values.touch_from_button_map_index);
+            static_cast<u64>(Settings::values.touch_from_button_map_index.GetValue());
         const auto& buttons = Settings::values.touch_from_button_maps[button_index].buttons;
 
         for (const auto& config_entry : buttons) {

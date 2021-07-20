@@ -115,10 +115,13 @@ public:
     FileSys::VirtualDir GetContentDirectory(ContentStorageId id) const;
     FileSys::VirtualDir GetImageDirectory(ImageDirectoryId id) const;
 
+    FileSys::VirtualDir GetSDMCModificationLoadRoot(u64 title_id) const;
     FileSys::VirtualDir GetModificationLoadRoot(u64 title_id) const;
     FileSys::VirtualDir GetModificationDumpRoot(u64 title_id) const;
 
     FileSys::VirtualDir GetBCATDirectory(u64 title_id) const;
+
+    void SetAutoSaveDataCreation(bool enable);
 
     // Creates the SaveData, SDMC, and BIS Factories. Should be called once and before any function
     // above is called.

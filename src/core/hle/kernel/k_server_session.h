@@ -32,6 +32,7 @@ class HLERequestContext;
 class KernelCore;
 class KSession;
 class SessionRequestHandler;
+class SessionRequestManager;
 class KThread;
 
 class KServerSession final : public KSynchronizationObject,
@@ -42,11 +43,12 @@ class KServerSession final : public KSynchronizationObject,
 
 public:
     explicit KServerSession(KernelCore& kernel_);
-    virtual ~KServerSession() override;
+    ~KServerSession() override;
 
-    virtual void Destroy() override;
+    void Destroy() override;
 
-    void Initialize(KSession* parent_, std::string&& name_);
+    void Initialize(KSession* parent_session_, std::string&& name_,
+                    std::shared_ptr<SessionRequestManager> manager_);
 
     KSession* GetParent() {
         return parent;
@@ -56,17 +58,16 @@ public:
         return parent;
     }
 
-    virtual bool IsSignaled() const override;
+    bool IsSignaled() const override;
 
     void OnClientClosed();
 
-    /**
-     * Sets the HLE handler for the session. This handler will be called to service IPC requests
-     * instead of the regular IPC machinery. (The regular IPC machinery is currently not
-     * implemented.)
-     */
-    void SetSessionHandler(SessionRequestHandlerPtr handler) {
+    void ClientConnected(SessionRequestHandlerPtr handler) {
         manager->SetSessionHandler(std::move(handler));
+    }
+
+    void ClientDisconnected() {
+        manager = nullptr;
     }
 
     /**
@@ -104,16 +105,6 @@ public:
         return manager;
     }
 
-    /// Gets the session request manager, which forwards requests to the underlying service
-    const std::shared_ptr<SessionRequestManager>& GetSessionRequestManager() const {
-        return manager;
-    }
-
-    /// Sets the session request manager, which forwards requests to the underlying service
-    void SetSessionRequestManager(std::shared_ptr<SessionRequestManager> manager_) {
-        manager = std::move(manager_);
-    }
-
 private:
     /// Queues a sync request from the emulated application.
     ResultCode QueueSyncRequest(KThread* thread, Core::Memory::Memory& memory);
@@ -130,9 +121,6 @@ private:
 
     /// When set to True, converts the session to a domain at the end of the command
     bool convert_to_domain{};
-
-    /// Thread to dispatch service requests
-    std::weak_ptr<ServiceThread> service_thread;
 
     /// KSession that owns this KServerSession
     KSession* parent{};

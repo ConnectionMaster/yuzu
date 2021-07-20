@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "common/bit_cast.h"
+#include "common/settings.h"
 
 #include "video_core/engines/fermi_2d.h"
 #include "video_core/renderer_vulkan/blit_image.h"
@@ -607,7 +608,10 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
     const VkImageAspectFlags aspect_mask = ImageAspectMask(src.format);
     const bool is_dst_msaa = dst.Samples() != VK_SAMPLE_COUNT_1_BIT;
     const bool is_src_msaa = src.Samples() != VK_SAMPLE_COUNT_1_BIT;
-    ASSERT(aspect_mask == ImageAspectMask(dst.format));
+    if (aspect_mask != ImageAspectMask(dst.format)) {
+        UNIMPLEMENTED_MSG("Incompatible blit from format {} to {}", src.format, dst.format);
+        return;
+    }
     if (aspect_mask == VK_IMAGE_ASPECT_COLOR_BIT && !is_src_msaa && !is_dst_msaa) {
         blit_image_helper.BlitColor(dst_framebuffer, src, dst_region, src_region, filter,
                                     operation);
@@ -817,6 +821,10 @@ void TextureCacheRuntime::CopyImage(Image& dst, Image& src,
     });
 }
 
+u64 TextureCacheRuntime::GetDeviceLocalMemory() const {
+    return device.GetDeviceLocalMemory();
+}
+
 Image::Image(TextureCacheRuntime& runtime, const ImageInfo& info_, GPUVAddr gpu_addr_,
              VAddr cpu_addr_)
     : VideoCommon::ImageBase(info_, gpu_addr_, cpu_addr_), scheduler{&runtime.scheduler},
@@ -828,7 +836,11 @@ Image::Image(TextureCacheRuntime& runtime, const ImageInfo& info_, GPUVAddr gpu_
         commit = runtime.memory_allocator.Commit(buffer, MemoryUsage::DeviceLocal);
     }
     if (IsPixelFormatASTC(info.format) && !runtime.device.IsOptimalAstcSupported()) {
-        flags |= VideoCommon::ImageFlagBits::AcceleratedUpload;
+        if (Settings::values.accelerate_astc.GetValue()) {
+            flags |= VideoCommon::ImageFlagBits::AcceleratedUpload;
+        } else {
+            flags |= VideoCommon::ImageFlagBits::Converted;
+        }
     }
     if (runtime.device.HasDebuggingToolAttached()) {
         if (image) {
@@ -871,6 +883,8 @@ Image::Image(TextureCacheRuntime& runtime, const ImageInfo& info_, GPUVAddr gpu_
     }
 }
 
+Image::~Image() = default;
+
 void Image::UploadMemory(const StagingBufferRef& map, std::span<const BufferImageCopy> copies) {
     // TODO: Move this to another API
     scheduler->RequestOutsideRenderPassOperationContext();
@@ -900,6 +914,7 @@ void Image::UploadMemory(const StagingBufferRef& map,
 
 void Image::DownloadMemory(const StagingBufferRef& map, std::span<const BufferImageCopy> copies) {
     std::vector vk_copies = TransformBufferImageCopies(copies, map.offset, aspect_mask);
+    scheduler->RequestOutsideRenderPassOperationContext();
     scheduler->Record([buffer = map.buffer, image = *image, aspect_mask = aspect_mask,
                        vk_copies](vk::CommandBuffer cmdbuf) {
         const VkImageMemoryBarrier read_barrier{

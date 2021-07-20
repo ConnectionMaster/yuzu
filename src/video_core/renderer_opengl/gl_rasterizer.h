@@ -19,6 +19,7 @@
 #include "common/common_types.h"
 #include "video_core/engines/const_buffer_info.h"
 #include "video_core/engines/maxwell_3d.h"
+#include "video_core/engines/maxwell_dma.h"
 #include "video_core/rasterizer_accelerated.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_opengl/gl_buffer_cache.h"
@@ -58,6 +59,16 @@ struct BindlessSSBO {
 };
 static_assert(sizeof(BindlessSSBO) * CHAR_BIT == 128);
 
+class AccelerateDMA : public Tegra::Engines::AccelerateDMAInterface {
+public:
+    explicit AccelerateDMA(BufferCache& buffer_cache);
+
+    bool BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount) override;
+
+private:
+    BufferCache& buffer_cache;
+};
+
 class RasterizerOpenGL : public VideoCore::RasterizerAccelerated {
 public:
     explicit RasterizerOpenGL(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
@@ -72,6 +83,7 @@ public:
     void ResetCounter(VideoCore::QueryType type) override;
     void Query(GPUVAddr gpu_addr, VideoCore::QueryType type, std::optional<u64> timestamp) override;
     void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr, u32 size) override;
+    void DisableGraphicsUniformBuffer(size_t stage, u32 index) override;
     void FlushAll() override;
     void FlushRegion(VAddr addr, u64 size) override;
     bool MustFlushRegion(VAddr addr, u64 size) override;
@@ -79,8 +91,10 @@ public:
     void OnCPUWrite(VAddr addr, u64 size) override;
     void SyncGuestHost() override;
     void UnmapMemory(VAddr addr, u64 size) override;
+    void ModifyGPUMemory(GPUVAddr addr, u64 size) override;
     void SignalSemaphore(GPUVAddr addr, u32 value) override;
     void SignalSyncPoint(u32 value) override;
+    void SignalReference() override;
     void ReleaseFences() override;
     void FlushAndInvalidateRegion(VAddr addr, u64 size) override;
     void WaitForIdle() override;
@@ -91,9 +105,10 @@ public:
     bool AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
                                const Tegra::Engines::Fermi2D::Surface& dst,
                                const Tegra::Engines::Fermi2D::Config& copy_config) override;
+    Tegra::Engines::AccelerateDMAInterface& AccessAccelerateDMA() override;
     bool AccelerateDisplay(const Tegra::FramebufferConfig& config, VAddr framebuffer_addr,
                            u32 pixel_stride) override;
-    void LoadDiskResources(u64 title_id, const std::atomic_bool& stop_loading,
+    void LoadDiskResources(u64 title_id, std::stop_token stop_loading,
                            const VideoCore::DiskResourceLoadCallback& callback) override;
 
     /// Returns true when there are commands queued to the OpenGL server.
@@ -231,6 +246,7 @@ private:
     BufferCache buffer_cache;
     ShaderCacheOpenGL shader_cache;
     QueryCache query_cache;
+    AccelerateDMA accelerate_dma;
     FenceManagerOpenGL fence_manager;
 
     VideoCommon::Shader::AsyncShaders async_shaders;

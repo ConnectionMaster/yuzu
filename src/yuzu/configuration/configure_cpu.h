@@ -29,7 +29,6 @@ private:
     void changeEvent(QEvent* event) override;
     void RetranslateUI();
 
-    void AccuracyUpdated(int index);
     void UpdateGroup(int index);
 
     void SetConfiguration();
@@ -40,5 +39,7 @@ private:
 
     ConfigurationShared::CheckState cpuopt_unsafe_unfuse_fma;
     ConfigurationShared::CheckState cpuopt_unsafe_reduce_fp_error;
+    ConfigurationShared::CheckState cpuopt_unsafe_ignore_standard_fpcr;
     ConfigurationShared::CheckState cpuopt_unsafe_inaccurate_nan;
+    ConfigurationShared::CheckState cpuopt_unsafe_fastmem_check;
 };

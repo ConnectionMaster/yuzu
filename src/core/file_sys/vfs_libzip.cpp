@@ -13,7 +13,7 @@
 #pragma GCC diagnostic pop
 #endif
 
-#include "common/logging/backend.h"
+#include "common/fs/path_util.h"
 #include "core/file_sys/vfs.h"
 #include "core/file_sys/vfs_libzip.h"
 #include "core/file_sys/vfs_vector.h"

@@ -28,6 +28,7 @@ class GameListWorker;
 class GameListSearchField;
 class GameListDir;
 class GMainWindow;
+enum class StartGameType;
 
 namespace FileSys {
 class ManualContentProvider;
@@ -42,6 +43,11 @@ enum class GameListOpenTarget {
 enum class GameListRemoveTarget {
     ShaderCache,
     CustomConfiguration,
+};
+
+enum class DumpRomFSTarget {
+    Normal,
+    SDMC,
 };
 
 enum class InstalledEntryType {
@@ -82,14 +88,17 @@ public:
     static const QStringList supported_file_extensions;
 
 signals:
-    void GameChosen(const QString& game_path);
+    void BootGame(const QString& game_path, u64 program_id, std::size_t program_index,
+                  StartGameType type);
+    void GameChosen(const QString& game_path, const u64 title_id = 0);
     void ShouldCancelWorker();
     void OpenFolderRequested(u64 program_id, GameListOpenTarget target,
                              const std::string& game_path);
     void OpenTransferableShaderCacheRequested(u64 program_id);
     void RemoveInstalledEntryRequested(u64 program_id, InstalledEntryType type);
-    void RemoveFileRequested(u64 program_id, GameListRemoveTarget target);
-    void DumpRomFSRequested(u64 program_id, const std::string& game_path);
+    void RemoveFileRequested(u64 program_id, GameListRemoveTarget target,
+                             const std::string& game_path);
+    void DumpRomFSRequested(u64 program_id, const std::string& game_path, DumpRomFSTarget target);
     void CopyTIDRequested(u64 program_id);
     void NavigateToGamedbEntryRequested(u64 program_id,
                                         const CompatibilityList& compatibility_list);

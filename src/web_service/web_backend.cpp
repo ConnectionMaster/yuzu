@@ -8,7 +8,17 @@
 #include <string>
 
 #include <fmt/format.h>
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#ifndef __clang__
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+#endif
 #include <httplib.h>
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #include "common/logging/log.h"
 #include "web_service/web_backend.h"
@@ -100,8 +110,9 @@ struct Client::Impl {
         request.body = data;
 
         httplib::Response response;
+        httplib::Error error;
 
-        if (!cli->send(request, response)) {
+        if (!cli->send(request, response, error)) {
             LOG_ERROR(WebService, "{} to {} returned null", method, host + path);
             return WebResult{WebResult::Code::LibError, "Null response", ""};
         }

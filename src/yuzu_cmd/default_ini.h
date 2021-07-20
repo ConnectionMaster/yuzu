@@ -7,7 +7,7 @@
 namespace DefaultINI {
 
 const char* sdl2_config_file = R"(
-[Controls]
+[ControlsGeneral]
 # The input devices and parameters for each Switch native input
 # It should be in the format of "engine:[engine_name],[param1]:[value1],[param2]:[value2]..."
 # Escape characters $0 (for ':'), $1 (for ',') and $2 (for '$') can be used in values
@@ -65,6 +65,13 @@ button_screenshot=
 lstick=
 rstick=
 
+# To use the debug_pad, prepend `debug_pad_` before each button setting above.
+# i.e. debug_pad_button_a=
+
+# Enable debug pad inputs to the guest
+# 0 (default): Disabled, 1: Enabled
+debug_pad_enabled =
+
 # Whether to enable or disable vibration
 # 0: Disabled, 1 (default): Enabled
 vibration_enabled=
@@ -72,6 +79,10 @@ vibration_enabled=
 # Whether to enable or disable accurate vibrations
 # 0 (default): Disabled, 1: Enabled
 enable_accurate_vibrations=
+
+# Enables controller motion inputs
+# 0: Disabled, 1 (default): Enabled
+motion_enabled =
 
 # for motion input, the following devices are available:
 #  - "motion_emu" (default) for emulating motion input from mouse input. Required parameters:
@@ -86,19 +97,42 @@ motion_device=
 #      - "min_x", "min_y", "max_x", "max_y": defines the udp device's touch screen coordinate system
 touch_device=
 
-# Most desktop operating systems do not expose a way to poll the motion state of the controllers
-# so as a way around it, cemuhook created a udp client/server protocol to broadcast the data directly
-# from a controller device to the client program. Citra has a client that can connect and read
-# from any cemuhook compatible motion program.
+# Whether to enable or disable touch input from button
+# 0 (default): Disabled, 1: Enabled
+use_touch_from_button=
 
-# IPv4 address of the udp input server (Default "127.0.0.1")
-udp_input_address=127.0.0.1
+# for mapping buttons to touch inputs.
+#touch_from_button_map=1
+#touch_from_button_maps_0_name=default
+#touch_from_button_maps_0_count=2
+#touch_from_button_maps_0_bind_0=foo
+#touch_from_button_maps_0_bind_1=bar
+# etc.
 
-# Port of the udp input server. (Default 26760)
-udp_input_port=
+# List of Cemuhook UDP servers, delimited by ','.
+# Default: 127.0.0.1:26760
+# Example: 127.0.0.1:26760,123.4.5.67:26761
+udp_input_servers =
 
-# The pad to request data on. Should be between 0 (Pad 1) and 3 (Pad 4). (Default 0)
-udp_pad_index=
+# Enable controlling an axis via a mouse input.
+# 0 (default): Off, 1: On
+mouse_panning =
+
+# Set mouse sensitivity.
+# Default: 1.0
+mouse_panning_sensitivity =
+
+# Emulate an analog control stick from keyboard inputs.
+# 0 (default): Disabled, 1: Enabled
+emulate_analog_keyboard =
+
+# Enable mouse inputs to the guest
+# 0 (default): Disabled, 1: Enabled
+mouse_enabled =
+
+# Enable keyboard inputs to the guest
+# 0 (default): Disabled, 1: Enabled
+keyboard_enabled =
 
 [Core]
 # Whether to use multi-core for CPU emulation
@@ -106,6 +140,17 @@ udp_pad_index=
 use_multi_core=
 
 [Cpu]
+# Adjusts various optimizations.
+# Auto-select mode enables choice unsafe optimizations.
+# Accurate enables only safe optimizations.
+# Unsafe allows any unsafe optimizations.
+# 0 (default): Auto-select, 1: Accurate, 2: Enable unsafe optimizations
+cpu_accuracy =
+
+# Allow disabling safe optimizations.
+# 0 (default): Disabled, 1: Enabled
+cpu_debug_mode =
+
 # Enable inline page tables optimization (faster guest memory access)
 # 0: Disabled, 1 (default): Enabled
 cpuopt_page_tables =
@@ -138,6 +183,35 @@ cpuopt_misc_ir =
 # 0: Disabled, 1 (default): Enabled
 cpuopt_reduce_misalign_checks =
 
+# Enable Host MMU Emulation (faster guest memory access)
+# 0: Disabled, 1 (default): Enabled
+cpuopt_fastmem =
+
+# Enable unfuse FMA (improve performance on CPUs without FMA)
+# Only enabled if cpu_accuracy is set to Unsafe. Automatically chosen with cpu_accuracy = Auto-select.
+# 0: Disabled, 1 (default): Enabled
+cpuopt_unsafe_unfuse_fma =
+
+# Enable faster FRSQRTE and FRECPE
+# Only enabled if cpu_accuracy is set to Unsafe.
+# 0: Disabled, 1 (default): Enabled
+cpuopt_unsafe_reduce_fp_error =
+
+# Enable faster ASIMD instructions (32 bits only)
+# Only enabled if cpu_accuracy is set to Unsafe. Automatically chosen with cpu_accuracy = Auto-select.
+# 0: Disabled, 1 (default): Enabled
+cpuopt_unsafe_ignore_standard_fpcr =
+
+# Enable inaccurate NaN handling
+# Only enabled if cpu_accuracy is set to Unsafe. Automatically chosen with cpu_accuracy = Auto-select.
+# 0: Disabled, 1 (default): Enabled
+cpuopt_unsafe_inaccurate_nan =
+
+# Disable address space checks (64 bits only)
+# Only enabled if cpu_accuracy is set to Unsafe. Automatically chosen with cpu_accuracy = Auto-select.
+# 0: Disabled, 1 (default): Enabled
+cpuopt_unsafe_fastmem_check =
+
 [Renderer]
 # Which backend API to use.
 # 0 (default): OpenGL, 1: Vulkan
@@ -149,14 +223,6 @@ debug =
 
 # Which Vulkan physical device to use (defaults to 0)
 vulkan_device =
-
-# Whether to use software or hardware rendering.
-# 0: Software, 1 (default): Hardware
-use_hw_renderer =
-
-# Whether to use the Just-In-Time (JIT) compiler for shader emulation
-# 0: Interpreter (slow), 1 (default): JIT (fast)
-use_shader_jit =
 
 # Aspect ratio
 # 0: Default (16:9), 1: Force 4:3, 2: Force 21:9, 3: Stretch to Window
@@ -178,6 +244,14 @@ use_assembly_shaders =
 # 0 (default): Off, 1: On
 use_asynchronous_shaders =
 
+# Enable NVDEC emulation.
+# 0: Off, 1 (default): On
+use_nvdec_emulation =
+
+# Accelerate ASTC texture decoding.
+# 0: Off, 1 (default): On
+accelerate_astc =
+
 # Turns on the frame limiter, which will limit frames output to the target game speed
 # 0: Off, 1: On (default)
 use_frame_limit =
@@ -187,56 +261,37 @@ use_frame_limit =
 frame_limit =
 
 # Whether to use disk based shader cache
-# 0 (default): Off, 1 : On
+# 0: Off, 1 (default): On
 use_disk_shader_cache =
 
 # Which gpu accuracy level to use
-# 0 (Normal), 1 (High), 2 (Extreme)
+# 0: Normal, 1 (default): High, 2: Extreme (Very slow)
 gpu_accuracy =
 
 # Whether to use asynchronous GPU emulation
 # 0 : Off (slow), 1 (default): On (fast)
 use_asynchronous_gpu_emulation =
 
-# Forces VSync on the display thread. Usually doesn't impact performance, but on some drivers it can
-# so only turn this off if you notice a speed difference.
+# Inform the guest that GPU operations completed more quickly than they did.
 # 0: Off, 1 (default): On
-use_vsync =
+use_fast_gpu_time =
+
+# Whether to use garbage collection or not for GPU caches.
+# 0 (default): Off, 1: On
+use_caches_gc =
 
 # The clear color for the renderer. What shows up on the sides of the bottom screen.
-# Must be in range of 0.0-1.0. Defaults to 1.0 for all.
+# Must be in range of 0-255. Defaults to 0 for all.
 bg_red =
 bg_blue =
 bg_green =
 
-[Layout]
-# Layout for the screen inside the render window.
-# 0 (default): Default Top Bottom Screen, 1: Single Screen Only, 2: Large Screen Small Screen
-layout_option =
-
-# Toggle custom layout (using the settings below) on or off.
-# 0 (default): Off, 1: On
-custom_layout =
-
-# Screen placement when using Custom layout option
-# 0x, 0y is the top left corner of the render window.
-custom_top_left =
-custom_top_top =
-custom_top_right =
-custom_top_bottom =
-custom_bottom_left =
-custom_bottom_top =
-custom_bottom_right =
-custom_bottom_bottom =
-
-# Swaps the prominent screen with the other screen.
-# For example, if Single Screen is chosen, setting this to 1 will display the bottom screen instead of the top screen.
-# 0 (default): Top Screen is prominent, 1: Bottom Screen is prominent
-swap_screen =
-
 [Audio]
 # Which audio output engine to use.
-# auto (default): Auto-select, null: No audio output, cubeb: Cubeb audio engine (if available)
+# auto (default): Auto-select
+# cubeb: Cubeb audio engine (if available)
+# sdl2: SDL2 audio engine (if available)
+# null: No audio output
 output_engine =
 
 # Whether or not to enable the audio-stretching post-processing effect.
@@ -250,7 +305,7 @@ enable_audio_stretching =
 output_device =
 
 # Output volume.
-# 1.0 (default): 100%, 0.0; mute
+# 100 (default): 100%, 0; mute
 volume =
 
 [Data Storage]
@@ -277,10 +332,6 @@ gamecard_path =
 # 1 (default): Yes, 0: No
 use_docked_mode =
 
-# Allow the use of NFC in games
-# 1 (default): Yes, 0 : No
-enable_nfc =
-
 # Sets the seed for the RNG generator built into the switch
 # rng_seed will be ignored and randomly generated if rng_seed_enabled is false
 rng_seed_enabled =
@@ -292,10 +343,6 @@ rng_seed =
 custom_rtc_enabled =
 custom_rtc =
 
-# Sets the account username, max length is 32 characters
-# yuzu (default)
-username = yuzu
-
 # Sets the systems language index
 # 0: Japanese, 1: English (default), 2: French, 3: German, 4: Italian, 5: Spanish, 6: Chinese,
 # 7: Korean, 8: Dutch, 9: Portuguese, 10: Russian, 11: Taiwanese, 12: British English, 13: Canadian French,
@@ -304,16 +351,24 @@ language_index =
 
 # The system region that yuzu will use during emulation
 # -1: Auto-select (default), 0: Japan, 1: USA, 2: Europe, 3: Australia, 4: China, 5: Korea, 6: Taiwan
-region_value =
+region_index =
 
 # The system time zone that yuzu will use during emulation
 # 0: Auto-select (default), 1: Default (system archive value), Others: Index for specified time zone
 time_zone_index =
 
+# Sets the sound output mode.
+# 0: Mono, 1 (default): Stereo, 2: Surround
+sound_index =
+
 [Miscellaneous]
 # A filter which removes logs below a certain logging level.
 # Examples: *:Debug Kernel.SVC:Trace Service.*:Critical
 log_filter = *:Trace
+
+# Use developer keys
+# 0 (default): Disabled, 1: Enabled
+use_dev_keys =
 
 [Debugging]
 # Record frame time data, can be found in the log directory. Boolean value
@@ -322,6 +377,10 @@ record_frame_times =
 dump_exefs=false
 # Determines whether or not yuzu will dump all NSOs it attempts to load while loading them
 dump_nso=false
+# Determines whether or not yuzu will save the filesystem access log.
+enable_fs_access_log=false
+# Enables verbose reporting services
+reporting_services =
 # Determines whether or not yuzu will report to the game that the emulated console is in Kiosk Mode
 # false: Retail/Normal Mode (default), true: Kiosk Mode
 quest_flag =
@@ -333,6 +392,9 @@ use_debug_asserts =
 use_auto_stub =
 # Enables/Disables the macro JIT compiler
 disable_macro_jit=false
+# Presents guest frames as they become available. Experimental.
+# false: Disabled (default), true: Enabled
+disable_fps_limit=false
 
 [WebService]
 # Whether or not to enable telemetry
@@ -357,4 +419,4 @@ title_ids =
 # For each title ID, have a key/value pair called `disabled_<title_id>` equal to the names of the add-ons to disable (sep. by '|')
 # e.x. disabled_0100000000010000 = Update|DLC <- disables Updates and DLC on Super Mario Odyssey
 )";
-}
+} // namespace DefaultINI

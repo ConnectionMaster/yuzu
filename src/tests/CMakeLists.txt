@@ -2,8 +2,10 @@ add_executable(tests
     common/bit_field.cpp
     common/cityhash.cpp
     common/fibers.cpp
+    common/host_memory.cpp
     common/param_package.cpp
     common/ring_buffer.cpp
+    common/unique_function.cpp
     core/core_timing.cpp
     core/network/network.cpp
     tests.cpp

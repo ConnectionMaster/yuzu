@@ -4,10 +4,10 @@
 
 #pragma once
 
-#include <atomic>
 #include <functional>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include "common/common_types.h"
 #include "video_core/engines/fermi_2d.h"
 #include "video_core/gpu.h"
@@ -15,7 +15,10 @@
 
 namespace Tegra {
 class MemoryManager;
+namespace Engines {
+class AccelerateDMAInterface;
 }
+} // namespace Tegra
 
 namespace VideoCore {
 
@@ -54,11 +57,17 @@ public:
     virtual void BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr,
                                            u32 size) = 0;
 
+    /// Signal disabling of a uniform buffer
+    virtual void DisableGraphicsUniformBuffer(size_t stage, u32 index) = 0;
+
     /// Signal a GPU based semaphore as a fence
     virtual void SignalSemaphore(GPUVAddr addr, u32 value) = 0;
 
     /// Signal a GPU based syncpoint as a fence
     virtual void SignalSyncPoint(u32 value) = 0;
+
+    /// Signal a GPU based reference as point
+    virtual void SignalReference() = 0;
 
     /// Release all pending fences.
     virtual void ReleaseFences() = 0;
@@ -83,6 +92,9 @@ public:
 
     /// Unmap memory range
     virtual void UnmapMemory(VAddr addr, u64 size) = 0;
+
+    /// Remap GPU memory range. This means underneath backing memory changed
+    virtual void ModifyGPUMemory(GPUVAddr addr, u64 size) = 0;
 
     /// Notify rasterizer that any caches of the specified region should be flushed to Switch memory
     /// and invalidated
@@ -110,6 +122,8 @@ public:
         return false;
     }
 
+    [[nodiscard]] virtual Tegra::Engines::AccelerateDMAInterface& AccessAccelerateDMA() = 0;
+
     /// Attempt to use a faster method to display the framebuffer to screen
     [[nodiscard]] virtual bool AccelerateDisplay(const Tegra::FramebufferConfig& config,
                                                  VAddr framebuffer_addr, u32 pixel_stride) {
@@ -120,7 +134,7 @@ public:
     virtual void UpdatePagesCachedCount(VAddr addr, u64 size, int delta) {}
 
     /// Initialize disk cached resources for the game being emulated
-    virtual void LoadDiskResources(u64 title_id, const std::atomic_bool& stop_loading,
+    virtual void LoadDiskResources(u64 title_id, std::stop_token stop_loading,
                                    const DiskResourceLoadCallback& callback) {}
 
     /// Grant access to the Guest Driver Profile for recording/obtaining info on the guest driver.

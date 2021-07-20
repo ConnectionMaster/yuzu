@@ -142,7 +142,7 @@ ResultCode KProcess::Initialize(KProcess* process, Core::System& system, std::st
     // Open a reference to the resource limit.
     process->resource_limit->Open();
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 KResourceLimit* KProcess::GetResourceLimit() const {
@@ -201,16 +201,14 @@ bool KProcess::ReleaseUserException(KThread* thread) {
 
         // Remove waiter thread.
         s32 num_waiters{};
-        KThread* next = thread->RemoveWaiterByKey(
-            std::addressof(num_waiters),
-            reinterpret_cast<uintptr_t>(std::addressof(exception_thread)));
-        if (next != nullptr) {
-            if (next->GetState() == ThreadState::Waiting) {
-                next->SetState(ThreadState::Runnable);
-            } else {
-                KScheduler::SetSchedulerUpdateNeeded(kernel);
-            }
+        if (KThread* next = thread->RemoveWaiterByKey(
+                std::addressof(num_waiters),
+                reinterpret_cast<uintptr_t>(std::addressof(exception_thread)));
+            next != nullptr) {
+            next->SetState(ThreadState::Runnable);
         }
+
+        KScheduler::SetSchedulerUpdateNeeded(kernel);
 
         return true;
     } else {
@@ -258,7 +256,7 @@ ResultCode KProcess::AddSharedMemory(KSharedMemory* shmem, [[maybe_unused]] VAdd
     // Open a reference to the shared memory.
     shmem->Open();
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 void KProcess::RemoveSharedMemory(KSharedMemory* shmem, [[maybe_unused]] VAddr address,
@@ -291,7 +289,7 @@ ResultCode KProcess::Reset() {
 
     // Clear signaled.
     is_signaled = false;
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KProcess::LoadFromMetadata(const FileSys::ProgramMetadata& metadata,
@@ -524,7 +522,7 @@ ResultCode KProcess::AllocateMainThreadStack(std::size_t stack_size) {
 
     main_thread_stack_top += main_thread_stack_size;
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 } // namespace Kernel

@@ -10,9 +10,10 @@
 
 #include <fmt/ostream.h>
 
-#include "common/common_paths.h"
 #include "common/detached_tasks.h"
-#include "common/file_util.h"
+#include "common/fs/fs.h"
+#include "common/fs/fs_paths.h"
+#include "common/fs/path_util.h"
 #include "common/logging/backend.h"
 #include "common/logging/filter.h"
 #include "common/logging/log.h"
@@ -77,14 +78,14 @@ static void InitializeLogging() {
     using namespace Common;
 
     Log::Filter log_filter(Log::Level::Debug);
-    log_filter.ParseFilterString(Settings::values.log_filter);
+    log_filter.ParseFilterString(static_cast<std::string>(Settings::values.log_filter));
     Log::SetGlobalFilter(log_filter);
 
     Log::AddBackend(std::make_unique<Log::ColorConsoleBackend>());
 
-    const std::string& log_dir = FS::GetUserPath(FS::UserPath::LogDir);
-    FS::CreateFullPath(log_dir);
-    Log::AddBackend(std::make_unique<Log::FileBackend>(log_dir + LOG_FILE));
+    const auto& log_dir = FS::GetYuzuPath(FS::YuzuPath::LogDir);
+    void(FS::CreateDir(log_dir));
+    Log::AddBackend(std::make_unique<Log::FileBackend>(log_dir / LOG_FILE));
 #ifdef _WIN32
     Log::AddBackend(std::make_unique<Log::DebuggerBackend>());
 #endif
@@ -218,7 +219,7 @@ int main(int argc, char** argv) {
     system.GPU().Start();
 
     system.Renderer().ReadRasterizer()->LoadDiskResources(
-        system.CurrentProcess()->GetTitleID(), false,
+        system.CurrentProcess()->GetTitleID(), std::stop_token{},
         [](VideoCore::LoadCallbackStage, size_t value, size_t total) {});
 
     void(system.Run());

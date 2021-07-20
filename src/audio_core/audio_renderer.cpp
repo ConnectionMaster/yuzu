@@ -12,6 +12,7 @@
 #include "audio_core/voice_context.h"
 #include "common/logging/log.h"
 #include "common/settings.h"
+#include "core/core_timing.h"
 #include "core/memory.h"
 
 namespace {
@@ -28,10 +29,9 @@ namespace {
                                        (static_cast<float>(r_channel) * r_mix_amount)));
 }
 
-[[nodiscard]] static constexpr std::tuple<s16, s16> Mix6To2(s16 fl_channel, s16 fr_channel,
-                                                            s16 fc_channel,
-                                                            [[maybe_unused]] s16 lf_channel,
-                                                            s16 bl_channel, s16 br_channel) {
+[[maybe_unused, nodiscard]] static constexpr std::tuple<s16, s16> Mix6To2(
+    s16 fl_channel, s16 fr_channel, s16 fc_channel, [[maybe_unused]] s16 lf_channel, s16 bl_channel,
+    s16 br_channel) {
     // Front channels are mixed 36.94%, Center channels are mixed to be 26.12% & the back channels
     // are mixed to be 36.94%
 
@@ -56,11 +56,11 @@ namespace {
     const std::array<float_le, 4>& coeff) {
     const auto left =
         static_cast<float>(fl_channel) * coeff[0] + static_cast<float>(fc_channel) * coeff[1] +
-        static_cast<float>(lf_channel) * coeff[2] + static_cast<float>(bl_channel) * coeff[0];
+        static_cast<float>(lf_channel) * coeff[2] + static_cast<float>(bl_channel) * coeff[3];
 
     const auto right =
         static_cast<float>(fr_channel) * coeff[0] + static_cast<float>(fc_channel) * coeff[1] +
-        static_cast<float>(lf_channel) * coeff[2] + static_cast<float>(br_channel) * coeff[0];
+        static_cast<float>(lf_channel) * coeff[2] + static_cast<float>(br_channel) * coeff[3];
 
     return {ClampToS16(static_cast<s32>(left)), ClampToS16(static_cast<s32>(right))};
 }
@@ -68,7 +68,9 @@ namespace {
 } // namespace
 
 namespace AudioCore {
-AudioRenderer::AudioRenderer(Core::Timing::CoreTiming& core_timing, Core::Memory::Memory& memory_,
+constexpr s32 NUM_BUFFERS = 2;
+
+AudioRenderer::AudioRenderer(Core::Timing::CoreTiming& core_timing_, Core::Memory::Memory& memory_,
                              AudioCommon::AudioRendererParameter params,
                              Stream::ReleaseCallback&& release_callback,
                              std::size_t instance_number)
@@ -77,7 +79,8 @@ AudioRenderer::AudioRenderer(Core::Timing::CoreTiming& core_timing, Core::Memory
       sink_context(params.sink_count), splitter_context(),
       voices(params.voice_count), memory{memory_},
       command_generator(worker_params, voice_context, mix_context, splitter_context, effect_context,
-                        memory) {
+                        memory),
+      core_timing{core_timing_} {
     behavior_info.SetUserRevision(params.revision);
     splitter_context.Initialize(behavior_info, params.splitter_count,
                                 params.num_splitter_send_channels);
@@ -86,15 +89,26 @@ AudioRenderer::AudioRenderer(Core::Timing::CoreTiming& core_timing, Core::Memory
     stream = audio_out->OpenStream(
         core_timing, params.sample_rate, AudioCommon::STREAM_NUM_CHANNELS,
         fmt::format("AudioRenderer-Instance{}", instance_number), std::move(release_callback));
-    audio_out->StartStream(stream);
-
-    QueueMixedBuffer(0);
-    QueueMixedBuffer(1);
-    QueueMixedBuffer(2);
-    QueueMixedBuffer(3);
+    process_event = Core::Timing::CreateEvent(
+        fmt::format("AudioRenderer-Instance{}-Process", instance_number),
+        [this](std::uintptr_t, std::chrono::nanoseconds) { ReleaseAndQueueBuffers(); });
+    for (s32 i = 0; i < NUM_BUFFERS; ++i) {
+        QueueMixedBuffer(i);
+    }
 }
 
 AudioRenderer::~AudioRenderer() = default;
+
+ResultCode AudioRenderer::Start() {
+    audio_out->StartStream(stream);
+    ReleaseAndQueueBuffers();
+    return ResultSuccess;
+}
+
+ResultCode AudioRenderer::Stop() {
+    audio_out->StopStream(stream);
+    return ResultSuccess;
+}
 
 u32 AudioRenderer::GetSampleRate() const {
     return worker_params.sample_rate;
@@ -114,7 +128,7 @@ Stream::State AudioRenderer::GetStreamState() const {
 
 ResultCode AudioRenderer::UpdateAudioRenderer(const std::vector<u8>& input_params,
                                               std::vector<u8>& output_params) {
-
+    std::scoped_lock lock{mutex};
     InfoUpdater info_updater{input_params, output_params, behavior_info};
 
     if (!info_updater.UpdateBehaviorInfo(behavior_info)) {
@@ -194,10 +208,7 @@ ResultCode AudioRenderer::UpdateAudioRenderer(const std::vector<u8>& input_param
         LOG_ERROR(Audio, "Audio buffers were not consumed!");
         return AudioCommon::Audren::ERR_INVALID_PARAMETERS;
     }
-
-    ReleaseAndQueueBuffers();
-
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 void AudioRenderer::QueueMixedBuffer(Buffer::Tag tag) {
@@ -220,10 +231,8 @@ void AudioRenderer::QueueMixedBuffer(Buffer::Tag tag) {
     command_generator.PostCommand();
     // Base sample size
     std::size_t BUFFER_SIZE{worker_params.sample_count};
-    // Samples
-    std::vector<s16> buffer(BUFFER_SIZE * stream->GetNumChannels());
-    // Make sure to clear our samples
-    std::memset(buffer.data(), 0, buffer.size() * sizeof(s16));
+    // Samples, making sure to clear
+    std::vector<s16> buffer(BUFFER_SIZE * stream->GetNumChannels(), 0);
 
     if (sink_context.InUse()) {
         const auto stream_channel_count = stream->GetNumChannels();
@@ -231,7 +240,7 @@ void AudioRenderer::QueueMixedBuffer(Buffer::Tag tag) {
         const auto channel_count = buffer_offsets.size();
         const auto& final_mix = mix_context.GetFinalMixInfo();
         const auto& in_params = final_mix.GetInParams();
-        std::vector<s32*> mix_buffers(channel_count);
+        std::vector<std::span<s32>> mix_buffers(channel_count);
         for (std::size_t i = 0; i < channel_count; i++) {
             mix_buffers[i] =
                 command_generator.GetMixBuffer(in_params.buffer_offset + buffer_offsets[i]);
@@ -284,18 +293,11 @@ void AudioRenderer::QueueMixedBuffer(Buffer::Tag tag) {
                     buffer[i * stream_channel_count + 0] = Mix2To1(fl_sample, fr_sample);
                 } else if (stream_channel_count == 2) {
                     // Mix all channels into 2 channels
-                    if (sink_context.HasDownMixingCoefficients()) {
-                        const auto [left, right] = Mix6To2WithCoefficients(
-                            fl_sample, fr_sample, fc_sample, lf_sample, bl_sample, br_sample,
-                            sink_context.GetDownmixCoefficients());
-                        buffer[i * stream_channel_count + 0] = left;
-                        buffer[i * stream_channel_count + 1] = right;
-                    } else {
-                        const auto [left, right] = Mix6To2(fl_sample, fr_sample, fc_sample,
-                                                           lf_sample, bl_sample, br_sample);
-                        buffer[i * stream_channel_count + 0] = left;
-                        buffer[i * stream_channel_count + 1] = right;
-                    }
+                    const auto [left, right] = Mix6To2WithCoefficients(
+                        fl_sample, fr_sample, fc_sample, lf_sample, bl_sample, br_sample,
+                        sink_context.GetDownmixCoefficients());
+                    buffer[i * stream_channel_count + 0] = left;
+                    buffer[i * stream_channel_count + 1] = right;
                 } else if (stream_channel_count == 6) {
                     // Pass through
                     buffer[i * stream_channel_count + 0] = fl_sample;
@@ -315,10 +317,24 @@ void AudioRenderer::QueueMixedBuffer(Buffer::Tag tag) {
 }
 
 void AudioRenderer::ReleaseAndQueueBuffers() {
-    const auto released_buffers{audio_out->GetTagsAndReleaseBuffers(stream)};
-    for (const auto& tag : released_buffers) {
-        QueueMixedBuffer(tag);
+    if (!stream->IsPlaying()) {
+        return;
     }
+
+    {
+        std::scoped_lock lock{mutex};
+        const auto released_buffers{audio_out->GetTagsAndReleaseBuffers(stream)};
+        for (const auto& tag : released_buffers) {
+            QueueMixedBuffer(tag);
+        }
+    }
+
+    const f32 sample_rate = static_cast<f32>(GetSampleRate());
+    const f32 sample_count = static_cast<f32>(GetSampleCount());
+    const f32 consume_rate = sample_rate / (sample_count * (sample_count / 240));
+    const s32 ms = (1000 / static_cast<s32>(consume_rate)) - 1;
+    const std::chrono::milliseconds next_event_time(std::max(ms / NUM_BUFFERS, 1));
+    core_timing.ScheduleEvent(next_event_time, process_event, {});
 }
 
 } // namespace AudioCore

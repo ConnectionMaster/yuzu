@@ -9,6 +9,8 @@
 
 #include <glad/glad.h>
 
+#include "common/settings.h"
+
 #include "video_core/renderer_opengl/gl_device.h"
 #include "video_core/renderer_opengl/gl_shader_manager.h"
 #include "video_core/renderer_opengl/gl_state_tracker.h"
@@ -307,7 +309,9 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
 
 [[nodiscard]] bool CanBeAccelerated(const TextureCacheRuntime& runtime,
                                     const VideoCommon::ImageInfo& info) {
-    return !runtime.HasNativeASTC() && IsPixelFormatASTC(info.format);
+    if (IsPixelFormatASTC(info.format)) {
+        return !runtime.HasNativeASTC() && Settings::values.accelerate_astc.GetValue();
+    }
     // Disable other accelerated uploads for now as they don't implement swizzled uploads
     return false;
     switch (info.type) {
@@ -323,7 +327,8 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
     if (format_info.is_compressed) {
         return false;
     }
-    if (std::ranges::find(ACCELERATED_FORMATS, internal_format) == ACCELERATED_FORMATS.end()) {
+    if (std::ranges::find(ACCELERATED_FORMATS, static_cast<int>(internal_format)) ==
+        ACCELERATED_FORMATS.end()) {
         return false;
     }
     if (format_info.compatibility_by_size) {
@@ -337,6 +342,20 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
 [[nodiscard]] CopyOrigin MakeCopyOrigin(VideoCommon::Offset3D offset,
                                         VideoCommon::SubresourceLayers subresource, GLenum target) {
     switch (target) {
+    case GL_TEXTURE_1D:
+        return CopyOrigin{
+            .level = static_cast<GLint>(subresource.base_level),
+            .x = static_cast<GLint>(offset.x),
+            .y = static_cast<GLint>(0),
+            .z = static_cast<GLint>(0),
+        };
+    case GL_TEXTURE_1D_ARRAY:
+        return CopyOrigin{
+            .level = static_cast<GLint>(subresource.base_level),
+            .x = static_cast<GLint>(offset.x),
+            .y = static_cast<GLint>(0),
+            .z = static_cast<GLint>(subresource.base_layer),
+        };
     case GL_TEXTURE_2D_ARRAY:
     case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
         return CopyOrigin{
@@ -362,6 +381,18 @@ void ApplySwizzle(GLuint handle, PixelFormat format, std::array<SwizzleSource, 4
                                         VideoCommon::SubresourceLayers dst_subresource,
                                         GLenum target) {
     switch (target) {
+    case GL_TEXTURE_1D:
+        return CopyRegion{
+            .width = static_cast<GLsizei>(extent.width),
+            .height = static_cast<GLsizei>(1),
+            .depth = static_cast<GLsizei>(1),
+        };
+    case GL_TEXTURE_1D_ARRAY:
+        return CopyRegion{
+            .width = static_cast<GLsizei>(extent.width),
+            .height = static_cast<GLsizei>(1),
+            .depth = static_cast<GLsizei>(dst_subresource.num_layers),
+        };
     case GL_TEXTURE_2D_ARRAY:
     case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
         return CopyRegion{
@@ -732,6 +763,8 @@ Image::Image(TextureCacheRuntime& runtime, const VideoCommon::ImageInfo& info_, 
                       static_cast<GLsizei>(name.size()), name.data());
     }
 }
+
+Image::~Image() = default;
 
 void Image::UploadMemory(const ImageBufferMap& map,
                          std::span<const VideoCommon::BufferImageCopy> copies) {

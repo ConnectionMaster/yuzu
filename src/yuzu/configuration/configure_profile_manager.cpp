@@ -12,7 +12,7 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 #include "common/assert.h"
-#include "common/file_util.h"
+#include "common/fs/path_util.h"
 #include "common/settings.h"
 #include "common/string_util.h"
 #include "core/core.h"
@@ -34,9 +34,10 @@ constexpr std::array<u8, 107> backup_jpeg{
 };
 
 QString GetImagePath(Common::UUID uuid) {
-    const auto path = Common::FS::GetUserPath(Common::FS::UserPath::NANDDir) +
-                      "/system/save/8000000000000010/su/avators/" + uuid.FormatSwitch() + ".jpg";
-    return QString::fromStdString(path);
+    const auto path =
+        Common::FS::GetYuzuPath(Common::FS::YuzuPath::NANDDir) /
+        fmt::format("system/save/8000000000000010/su/avators/{}.jpg", uuid.FormatSwitch());
+    return QString::fromStdString(Common::FS::PathToUTF8String(path));
 }
 
 QString GetAccountUsername(const Service::Account::ProfileManager& manager, Common::UUID uuid) {
@@ -165,7 +166,7 @@ void ConfigureProfileManager::PopulateUserList() {
 void ConfigureProfileManager::UpdateCurrentUser() {
     ui->pm_add->setEnabled(profile_manager->GetUserCount() < Service::Account::MAX_USERS);
 
-    const auto& current_user = profile_manager->GetUser(Settings::values.current_user);
+    const auto& current_user = profile_manager->GetUser(Settings::values.current_user.GetValue());
     ASSERT(current_user);
     const auto username = GetAccountUsername(*profile_manager, *current_user);
 
@@ -244,15 +245,18 @@ void ConfigureProfileManager::DeleteUser() {
         this, tr("Confirm Delete"),
         tr("You are about to delete user with name \"%1\". Are you sure?").arg(username));
 
-    if (confirm == QMessageBox::No)
+    if (confirm == QMessageBox::No) {
         return;
+    }
 
-    if (Settings::values.current_user == tree_view->currentIndex().row())
+    if (Settings::values.current_user.GetValue() == tree_view->currentIndex().row()) {
         Settings::values.current_user = 0;
+    }
     UpdateCurrentUser();
 
-    if (!profile_manager->RemoveUser(*uuid))
+    if (!profile_manager->RemoveUser(*uuid)) {
         return;
+    }
 
     item_model->removeRows(tree_view->currentIndex().row(), 1);
     tree_view->clearSelection();
@@ -281,8 +285,8 @@ void ConfigureProfileManager::SetUserImage() {
         return;
     }
 
-    const auto raw_path = QString::fromStdString(
-        Common::FS::GetUserPath(Common::FS::UserPath::NANDDir) + "/system/save/8000000000000010");
+    const auto raw_path = QString::fromStdString(Common::FS::PathToUTF8String(
+        Common::FS::GetYuzuPath(Common::FS::YuzuPath::NANDDir) / "system/save/8000000000000010"));
     const QFileInfo raw_info{raw_path};
     if (raw_info.exists() && !raw_info.isDir() && !QFile::remove(raw_path)) {
         QMessageBox::warning(this, tr("Error deleting file"),

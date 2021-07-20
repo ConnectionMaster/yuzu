@@ -226,19 +226,24 @@ public:
     /// Call 'func' for each CPU modified range and unmark those pages as CPU modified
     template <typename Func>
     void ForEachUploadRange(VAddr query_cpu_range, u64 size, Func&& func) {
-        ForEachModifiedRange<Type::CPU>(query_cpu_range, size, func);
+        ForEachModifiedRange<Type::CPU>(query_cpu_range, size, true, func);
     }
 
     /// Call 'func' for each GPU modified range and unmark those pages as GPU modified
     template <typename Func>
-    void ForEachDownloadRange(VAddr query_cpu_range, u64 size, Func&& func) {
-        ForEachModifiedRange<Type::GPU>(query_cpu_range, size, func);
+    void ForEachDownloadRange(VAddr query_cpu_range, u64 size, bool clear, Func&& func) {
+        ForEachModifiedRange<Type::GPU>(query_cpu_range, size, clear, func);
+    }
+
+    template <typename Func>
+    void ForEachDownloadRangeAndClear(VAddr query_cpu_range, u64 size, Func&& func) {
+        ForEachModifiedRange<Type::GPU>(query_cpu_range, size, true, func);
     }
 
     /// Call 'func' for each GPU modified range and unmark those pages as GPU modified
     template <typename Func>
     void ForEachDownloadRange(Func&& func) {
-        ForEachModifiedRange<Type::GPU>(cpu_addr, SizeBytes(), func);
+        ForEachModifiedRange<Type::GPU>(cpu_addr, SizeBytes(), true, func);
     }
 
     /// Mark buffer as picked
@@ -254,6 +259,16 @@ public:
     /// Increases the likeliness of this being a stream buffer
     void IncreaseStreamScore(int score) noexcept {
         stream_score += score;
+    }
+
+    /// Sets the new frame tick
+    void SetFrameTick(u64 new_frame_tick) noexcept {
+        frame_tick = new_frame_tick;
+    }
+
+    /// Returns the new frame tick
+    [[nodiscard]] u64 FrameTick() const noexcept {
+        return frame_tick;
     }
 
     /// Returns the likeliness of this being a stream buffer
@@ -405,7 +420,7 @@ private:
      * @param func            Function to call for each turned off region
      */
     template <Type type, typename Func>
-    void ForEachModifiedRange(VAddr query_cpu_range, s64 size, Func&& func) {
+    void ForEachModifiedRange(VAddr query_cpu_range, s64 size, bool clear, Func&& func) {
         static_assert(type != Type::Untracked);
 
         const s64 difference = query_cpu_range - cpu_addr;
@@ -457,7 +472,9 @@ private:
             bits = (bits << left_offset) >> left_offset;
 
             const u64 current_word = state_words[word_index] & bits;
-            state_words[word_index] &= ~bits;
+            if (clear) {
+                state_words[word_index] &= ~bits;
+            }
 
             if constexpr (type == Type::CPU) {
                 const u64 current_bits = untracked_words[word_index] & bits;
@@ -475,6 +492,9 @@ private:
                     InvokeModifiedRange(func, current_size, current_base);
                     current_size = 0;
                     on_going = false;
+                }
+                if (empty_bits == PAGES_PER_WORD) {
+                    break;
                 }
                 page += empty_bits;
 
@@ -583,6 +603,7 @@ private:
     RasterizerInterface* rasterizer = nullptr;
     VAddr cpu_addr = 0;
     Words words;
+    u64 frame_tick = 0;
     BufferFlagBits flags{};
     int stream_score = 0;
 };

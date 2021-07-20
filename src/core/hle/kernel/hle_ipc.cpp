@@ -30,16 +30,38 @@
 
 namespace Kernel {
 
-SessionRequestHandler::SessionRequestHandler() = default;
+SessionRequestHandler::SessionRequestHandler(KernelCore& kernel_, const char* service_name_)
+    : kernel{kernel_}, service_thread{kernel.CreateServiceThread(service_name_)} {}
 
-SessionRequestHandler::~SessionRequestHandler() = default;
+SessionRequestHandler::~SessionRequestHandler() {
+    kernel.ReleaseServiceThread(service_thread);
+}
+
+SessionRequestManager::SessionRequestManager(KernelCore& kernel_) : kernel{kernel_} {}
+
+SessionRequestManager::~SessionRequestManager() = default;
+
+bool SessionRequestManager::HasSessionRequestHandler(const HLERequestContext& context) const {
+    if (IsDomain() && context.HasDomainMessageHeader()) {
+        const auto& message_header = context.GetDomainMessageHeader();
+        const auto object_id = message_header.object_id;
+
+        if (object_id > DomainHandlerCount()) {
+            LOG_CRITICAL(IPC, "object_id {} is too big!", object_id);
+            return false;
+        }
+        return DomainHandler(object_id - 1) != nullptr;
+    } else {
+        return session_handler != nullptr;
+    }
+}
 
 void SessionRequestHandler::ClientConnected(KServerSession* session) {
-    session->SetSessionHandler(shared_from_this());
+    session->ClientConnected(shared_from_this());
 }
 
 void SessionRequestHandler::ClientDisconnected(KServerSession* session) {
-    session->SetSessionHandler(nullptr);
+    session->ClientDisconnected();
 }
 
 HLERequestContext::HLERequestContext(KernelCore& kernel_, Core::Memory::Memory& memory_,
@@ -169,12 +191,12 @@ ResultCode HLERequestContext::PopulateFromIncomingCommandBuffer(const KHandleTab
 
     if (command_header->IsCloseCommand()) {
         // Close does not populate the rest of the IPC header
-        return RESULT_SUCCESS;
+        return ResultSuccess;
     }
 
     std::copy_n(src_cmdbuf, IPC::COMMAND_BUFFER_LENGTH, cmd_buf.begin());
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode HLERequestContext::WriteToOutgoingCommandBuffer(KThread& requesting_thread) {
@@ -216,7 +238,7 @@ ResultCode HLERequestContext::WriteToOutgoingCommandBuffer(KThread& requesting_t
     memory.WriteBlock(owner_process, requesting_thread.GetTLSAddress(), cmd_buf.data(),
                       write_size * sizeof(u32));
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 std::vector<u8> HLERequestContext::ReadBuffer(std::size_t buffer_index) const {

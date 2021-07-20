@@ -189,9 +189,6 @@ bool InfoUpdater::UpdateVoices(VoiceContext& voice_context,
         if (voice_in_params.is_new) {
             // Default our values for our voice
             voice_info.Initialize();
-            if (channel_count == 0 || channel_count > AudioCommon::MAX_CHANNEL_COUNT) {
-                continue;
-            }
 
             // Zero out our voice states
             for (std::size_t channel = 0; channel < channel_count; channel++) {
@@ -407,7 +404,7 @@ ResultCode InfoUpdater::UpdateMixes(MixContext& mix_context, std::size_t mix_buf
 
     // TODO(ogniK): Sort when splitter is suppoorted
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 bool InfoUpdater::UpdateSinks(SinkContext& sink_context) {

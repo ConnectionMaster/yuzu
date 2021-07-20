@@ -4,7 +4,7 @@
 
 #include <QDesktopServices>
 #include <QUrl>
-#include "common/file_util.h"
+#include "common/fs/path_util.h"
 #include "common/logging/backend.h"
 #include "common/logging/filter.h"
 #include "common/settings.h"
@@ -20,7 +20,7 @@ ConfigureDebug::ConfigureDebug(QWidget* parent) : QWidget(parent), ui(new Ui::Co
 
     connect(ui->open_log_button, &QPushButton::clicked, []() {
         const auto path =
-            QString::fromStdString(Common::FS::GetUserPath(Common::FS::UserPath::LogDir));
+            QString::fromStdString(Common::FS::GetYuzuPathString(Common::FS::YuzuPath::LogDir));
         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
     });
 }
@@ -28,35 +28,44 @@ ConfigureDebug::ConfigureDebug(QWidget* parent) : QWidget(parent), ui(new Ui::Co
 ConfigureDebug::~ConfigureDebug() = default;
 
 void ConfigureDebug::SetConfiguration() {
-    ui->toggle_console->setEnabled(!Core::System::GetInstance().IsPoweredOn());
-    ui->toggle_console->setChecked(UISettings::values.show_console);
-    ui->log_filter_edit->setText(QString::fromStdString(Settings::values.log_filter));
-    ui->homebrew_args_edit->setText(QString::fromStdString(Settings::values.program_args));
-    ui->reporting_services->setChecked(Settings::values.reporting_services);
-    ui->quest_flag->setChecked(Settings::values.quest_flag);
-    ui->use_debug_asserts->setChecked(Settings::values.use_debug_asserts);
-    ui->use_auto_stub->setChecked(Settings::values.use_auto_stub);
-    ui->enable_graphics_debugging->setEnabled(!Core::System::GetInstance().IsPoweredOn());
-    ui->enable_graphics_debugging->setChecked(Settings::values.renderer_debug);
-    ui->disable_macro_jit->setEnabled(!Core::System::GetInstance().IsPoweredOn());
-    ui->disable_macro_jit->setChecked(Settings::values.disable_macro_jit);
-    ui->extended_logging->setChecked(Settings::values.extended_logging);
+    const bool runtime_lock = !Core::System::GetInstance().IsPoweredOn();
+
+    ui->toggle_console->setEnabled(runtime_lock);
+    ui->toggle_console->setChecked(UISettings::values.show_console.GetValue());
+    ui->log_filter_edit->setText(QString::fromStdString(Settings::values.log_filter.GetValue()));
+    ui->homebrew_args_edit->setText(
+        QString::fromStdString(Settings::values.program_args.GetValue()));
+    ui->fs_access_log->setEnabled(runtime_lock);
+    ui->fs_access_log->setChecked(Settings::values.enable_fs_access_log.GetValue());
+    ui->reporting_services->setChecked(Settings::values.reporting_services.GetValue());
+    ui->quest_flag->setChecked(Settings::values.quest_flag.GetValue());
+    ui->use_debug_asserts->setChecked(Settings::values.use_debug_asserts.GetValue());
+    ui->use_auto_stub->setChecked(Settings::values.use_auto_stub.GetValue());
+    ui->enable_graphics_debugging->setEnabled(runtime_lock);
+    ui->enable_graphics_debugging->setChecked(Settings::values.renderer_debug.GetValue());
+    ui->enable_cpu_debugging->setEnabled(runtime_lock);
+    ui->enable_cpu_debugging->setChecked(Settings::values.cpu_debug_mode.GetValue());
+    ui->disable_macro_jit->setEnabled(runtime_lock);
+    ui->disable_macro_jit->setChecked(Settings::values.disable_macro_jit.GetValue());
+    ui->extended_logging->setChecked(Settings::values.extended_logging.GetValue());
 }
 
 void ConfigureDebug::ApplyConfiguration() {
     UISettings::values.show_console = ui->toggle_console->isChecked();
     Settings::values.log_filter = ui->log_filter_edit->text().toStdString();
     Settings::values.program_args = ui->homebrew_args_edit->text().toStdString();
+    Settings::values.enable_fs_access_log = ui->fs_access_log->isChecked();
     Settings::values.reporting_services = ui->reporting_services->isChecked();
     Settings::values.quest_flag = ui->quest_flag->isChecked();
     Settings::values.use_debug_asserts = ui->use_debug_asserts->isChecked();
     Settings::values.use_auto_stub = ui->use_auto_stub->isChecked();
     Settings::values.renderer_debug = ui->enable_graphics_debugging->isChecked();
+    Settings::values.cpu_debug_mode = ui->enable_cpu_debugging->isChecked();
     Settings::values.disable_macro_jit = ui->disable_macro_jit->isChecked();
     Settings::values.extended_logging = ui->extended_logging->isChecked();
     Debugger::ToggleConsole();
     Common::Log::Filter filter;
-    filter.ParseFilterString(Settings::values.log_filter);
+    filter.ParseFilterString(Settings::values.log_filter.GetValue());
     Common::Log::SetGlobalFilter(filter);
 }
 

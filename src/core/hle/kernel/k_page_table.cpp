@@ -4,6 +4,7 @@
 
 #include "common/alignment.h"
 #include "common/assert.h"
+#include "common/literals.h"
 #include "common/scope_exit.h"
 #include "core/core.h"
 #include "core/hle/kernel/k_address_space_info.h"
@@ -22,6 +23,8 @@
 namespace Kernel {
 
 namespace {
+
+using namespace Common::Literals;
 
 constexpr std::size_t GetAddressSpaceWidthFromType(FileSys::ProgramAddressSpaceType as_type) {
     switch (as_type) {
@@ -89,7 +92,7 @@ ResultCode KPageTable::InitializeForProcess(FileSys::ProgramAddressSpaceType as_
     }
 
     // Set code regions and determine remaining
-    constexpr std::size_t RegionAlignment{2 * 1024 * 1024};
+    constexpr std::size_t RegionAlignment{2_MiB};
     VAddr process_code_start{};
     VAddr process_code_end{};
     std::size_t stack_region_size{};
@@ -292,7 +295,7 @@ ResultCode KPageTable::MapProcessCode(VAddr addr, std::size_t num_pages, KMemory
 
     block_manager->Update(addr, num_pages, state, perm);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::MapProcessCodeMemory(VAddr dst_addr, VAddr src_addr, std::size_t size) {
@@ -329,14 +332,14 @@ ResultCode KPageTable::MapProcessCodeMemory(VAddr dst_addr, VAddr src_addr, std:
                           KMemoryAttribute::Locked);
     block_manager->Update(dst_addr, num_pages, KMemoryState::AliasCode);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::UnmapProcessCodeMemory(VAddr dst_addr, VAddr src_addr, std::size_t size) {
     std::lock_guard lock{page_table_lock};
 
     if (!size) {
-        return RESULT_SUCCESS;
+        return ResultSuccess;
     }
 
     const std::size_t num_pages{size / PageSize};
@@ -360,7 +363,7 @@ ResultCode KPageTable::UnmapProcessCodeMemory(VAddr dst_addr, VAddr src_addr, st
     block_manager->Update(src_addr, num_pages, KMemoryState::Normal,
                           KMemoryPermission::ReadAndWrite);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 void KPageTable::MapPhysicalMemory(KPageLinkedList& page_linked_list, VAddr start, VAddr end) {
@@ -408,7 +411,7 @@ ResultCode KPageTable::MapPhysicalMemory(VAddr addr, std::size_t size) {
     });
 
     if (mapped_size == size) {
-        return RESULT_SUCCESS;
+        return ResultSuccess;
     }
 
     const std::size_t remaining_size{size - mapped_size};
@@ -440,14 +443,14 @@ ResultCode KPageTable::MapPhysicalMemory(VAddr addr, std::size_t size) {
                           KMemoryAttribute::None, KMemoryState::Normal,
                           KMemoryPermission::ReadAndWrite, KMemoryAttribute::None);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::UnmapPhysicalMemory(VAddr addr, std::size_t size) {
     std::lock_guard lock{page_table_lock};
 
     const VAddr end_addr{addr + size};
-    ResultCode result{RESULT_SUCCESS};
+    ResultCode result{ResultSuccess};
     std::size_t mapped_size{};
 
     // Verify that the region can be unmapped
@@ -468,7 +471,7 @@ ResultCode KPageTable::UnmapPhysicalMemory(VAddr addr, std::size_t size) {
     }
 
     if (!mapped_size) {
-        return RESULT_SUCCESS;
+        return ResultSuccess;
     }
 
     CASCADE_CODE(UnmapMemory(addr, size));
@@ -477,14 +480,14 @@ ResultCode KPageTable::UnmapPhysicalMemory(VAddr addr, std::size_t size) {
     process->GetResourceLimit()->Release(LimitableResource::PhysicalMemory, mapped_size);
     physical_memory_usage -= mapped_size;
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::UnmapMemory(VAddr addr, std::size_t size) {
     std::lock_guard lock{page_table_lock};
 
     const VAddr end_addr{addr + size};
-    ResultCode result{RESULT_SUCCESS};
+    ResultCode result{ResultSuccess};
     KPageLinkedList page_linked_list;
 
     // Unmap each region within the range
@@ -513,7 +516,7 @@ ResultCode KPageTable::UnmapMemory(VAddr addr, std::size_t size) {
 
     block_manager->Update(addr, num_pages, KMemoryState::Free);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::Map(VAddr dst_addr, VAddr src_addr, std::size_t size) {
@@ -552,7 +555,7 @@ ResultCode KPageTable::Map(VAddr dst_addr, VAddr src_addr, std::size_t size) {
     block_manager->Update(dst_addr, num_pages, KMemoryState::Stack,
                           KMemoryPermission::ReadAndWrite);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::Unmap(VAddr dst_addr, VAddr src_addr, std::size_t size) {
@@ -594,7 +597,7 @@ ResultCode KPageTable::Unmap(VAddr dst_addr, VAddr src_addr, std::size_t size) {
     block_manager->Update(src_addr, num_pages, src_state, KMemoryPermission::ReadAndWrite);
     block_manager->Update(dst_addr, num_pages, KMemoryState::Free);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::MapPages(VAddr addr, const KPageLinkedList& page_linked_list,
@@ -616,7 +619,7 @@ ResultCode KPageTable::MapPages(VAddr addr, const KPageLinkedList& page_linked_l
         cur_addr += node.GetNumPages() * PageSize;
     }
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::MapPages(VAddr addr, KPageLinkedList& page_linked_list, KMemoryState state,
@@ -638,7 +641,7 @@ ResultCode KPageTable::MapPages(VAddr addr, KPageLinkedList& page_linked_list, K
 
     block_manager->Update(addr, num_pages, state, perm);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::UnmapPages(VAddr addr, const KPageLinkedList& page_linked_list) {
@@ -655,7 +658,7 @@ ResultCode KPageTable::UnmapPages(VAddr addr, const KPageLinkedList& page_linked
         cur_addr += node.GetNumPages() * PageSize;
     }
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::UnmapPages(VAddr addr, KPageLinkedList& page_linked_list,
@@ -677,7 +680,7 @@ ResultCode KPageTable::UnmapPages(VAddr addr, KPageLinkedList& page_linked_list,
 
     block_manager->Update(addr, num_pages, state, KMemoryPermission::None);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::SetCodeMemoryPermission(VAddr addr, std::size_t size,
@@ -708,7 +711,7 @@ ResultCode KPageTable::SetCodeMemoryPermission(VAddr addr, std::size_t size,
 
     // Return early if there is nothing to change
     if (state == prev_state && perm == prev_perm) {
-        return RESULT_SUCCESS;
+        return ResultSuccess;
     }
 
     if ((prev_perm & KMemoryPermission::Execute) != (perm & KMemoryPermission::Execute)) {
@@ -725,7 +728,7 @@ ResultCode KPageTable::SetCodeMemoryPermission(VAddr addr, std::size_t size,
 
     block_manager->Update(addr, num_pages, state, perm);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 KMemoryInfo KPageTable::QueryInfoImpl(VAddr addr) {
@@ -758,7 +761,7 @@ ResultCode KPageTable::ReserveTransferMemory(VAddr addr, std::size_t size, KMemo
 
     block_manager->Update(addr, size / PageSize, state, perm, attribute | KMemoryAttribute::Locked);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::ResetTransferMemory(VAddr addr, std::size_t size) {
@@ -775,7 +778,7 @@ ResultCode KPageTable::ResetTransferMemory(VAddr addr, std::size_t size) {
 
     block_manager->Update(addr, size / PageSize, state, KMemoryPermission::ReadAndWrite);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::SetMemoryAttribute(VAddr addr, std::size_t size, KMemoryAttribute mask,
@@ -797,13 +800,13 @@ ResultCode KPageTable::SetMemoryAttribute(VAddr addr, std::size_t size, KMemoryA
 
     block_manager->Update(addr, size / PageSize, state, perm, attribute);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::SetHeapCapacity(std::size_t new_heap_capacity) {
     std::lock_guard lock{page_table_lock};
     heap_capacity = new_heap_capacity;
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultVal<VAddr> KPageTable::SetHeapSize(std::size_t size) {
@@ -911,7 +914,7 @@ ResultCode KPageTable::LockForDeviceAddressSpace(VAddr addr, std::size_t size) {
         },
         perm);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::UnlockForDeviceAddressSpace(VAddr addr, std::size_t size) {
@@ -934,13 +937,13 @@ ResultCode KPageTable::UnlockForDeviceAddressSpace(VAddr addr, std::size_t size)
         },
         perm);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::InitializeMemoryLayout(VAddr start, VAddr end) {
     block_manager = std::make_unique<KMemoryBlockManager>(start, end);
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 bool KPageTable::IsRegionMapped(VAddr address, u64 size) {
@@ -1006,7 +1009,7 @@ ResultCode KPageTable::Operate(VAddr addr, std::size_t num_pages, const KPageLin
         addr += size;
     }
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::Operate(VAddr addr, std::size_t num_pages, KMemoryPermission perm,
@@ -1033,7 +1036,7 @@ ResultCode KPageTable::Operate(VAddr addr, std::size_t num_pages, KMemoryPermiss
     default:
         UNREACHABLE();
     }
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 constexpr VAddr KPageTable::GetRegionAddress(KMemoryState state) const {
@@ -1164,7 +1167,7 @@ constexpr ResultCode KPageTable::CheckMemoryState(const KMemoryInfo& info, KMemo
         return ResultInvalidCurrentMemory;
     }
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 ResultCode KPageTable::CheckMemoryState(KMemoryState* out_state, KMemoryPermission* out_perm,
@@ -1223,7 +1226,7 @@ ResultCode KPageTable::CheckMemoryState(KMemoryState* out_state, KMemoryPermissi
         *out_attr = first_attr & static_cast<KMemoryAttribute>(~ignore_attr);
     }
 
-    return RESULT_SUCCESS;
+    return ResultSuccess;
 }
 
 } // namespace Kernel
